@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import { dbService } from './db';
 import { Track, Playlist, RepeatMode, PlayerState, LibraryState } from './types';
 import { useMetadata } from './hooks/useMetadata';
+import { parseTrackMetadata } from './utils/metadata';
 import LoadingOverlay from './components/LoadingOverlay';
 import BottomNav from './components/BottomNav';
 import Home from './components/Home';
@@ -169,6 +170,13 @@ export default function App() {
     try {
       const fileList = Array.from(files);
       const existingTitles = new Set(Object.values(library.tracks).map(t => t.title));
+      // Also checking against raw filenames to match old behavior for some consistency,
+      // but primarily we should check titles after parsing.
+      // However, to avoid expensive parsing of already existing files, we might need a better heuristic.
+      // For now, let's keep it simple: Parse, then check Title.
+      // BUT, parsing EVERYTHING just to check duplicates is slow.
+      // Optimization: We can check file size + name, but we don't store original filename.
+      // Let's check `existingTitles` AFTER parsing.
 
       for (let fIdx = 0; fIdx < fileList.length; fIdx++) {
         const file = fileList[fIdx];
@@ -183,40 +191,47 @@ export default function App() {
             // Skip macOS hidden files
             if (entry.name.includes('__MACOSX') || entry.name.split('/').pop()?.startsWith('._')) continue;
 
-            const title = entry.name.split('/').pop()!.replace(/\.[^/.]+$/, "");
-            if (existingTitles.has(title)) {
-              console.log(`Skipping duplicate: ${title}`);
+            const rawTitle = entry.name.split('/').pop()!.replace(/\.[^/.]+$/, "");
+            const blob = await entry.async('blob');
+            const meta = await parseTrackMetadata(blob, rawTitle);
+
+            if (existingTitles.has(meta.title)) {
+              console.log(`Skipping duplicate (title): ${meta.title}`);
               continue;
             }
-            existingTitles.add(title);
+            existingTitles.add(meta.title);
 
-            const blob = await entry.async('blob');
             const id = crypto.randomUUID();
             await dbService.saveTrack({
               id,
-              title,
-              artist: 'Local Vibe',
-              album: 'Zip Import',
-              duration: 0,
+              title: meta.title,
+              artist: meta.artist,
+              album: meta.album,
+              coverArt: meta.coverArt,
+              duration: meta.duration,
               addedAt: Date.now()
             }, blob);
             setLoading(l => ({ ...l, progress: ((fIdx / fileList.length) * 100) + (((i + 1) / entries.length) * (100 / fileList.length)) }));
           }
         } else {
-          const title = file.name.replace(/\.[^/.]+$/, "");
-          if (existingTitles.has(title)) {
-            console.log(`Skipping duplicate: ${title}`);
+          const rawTitle = file.name.replace(/\.[^/.]+$/, "");
+          const meta = await parseTrackMetadata(file, rawTitle);
+
+          if (existingTitles.has(meta.title)) {
+            console.log(`Skipping duplicate (title): ${meta.title}`);
             continue;
           }
-          existingTitles.add(title);
+          existingTitles.add(meta.title);
 
           const id = crypto.randomUUID();
+
           await dbService.saveTrack({
             id,
-            title,
-            artist: 'Local Vibe',
-            album: 'Local Upload',
-            duration: 0,
+            title: meta.title,
+            artist: meta.artist,
+            album: meta.album,
+            coverArt: meta.coverArt,
+            duration: meta.duration,
             addedAt: Date.now()
           }, file);
         }
