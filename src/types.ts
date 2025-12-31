@@ -1,11 +1,17 @@
+export type RepeatMode = 'OFF' | 'ALL' | 'ONE';
+export const RepeatMode = {
+  OFF: 'OFF' as RepeatMode,
+  ALL: 'ALL' as RepeatMode,
+  ONE: 'ONE' as RepeatMode
+};
 
 export interface Track {
   id: string;
   title: string;
   artist: string;
   album: string;
-  duration: number;
   coverArt?: string;
+  duration: number;
   addedAt: number;
 }
 
@@ -14,12 +20,6 @@ export interface Playlist {
   name: string;
   trackIds: string[];
   createdAt: number;
-}
-
-export enum RepeatMode {
-  OFF = 'OFF',
-  ONE = 'ONE',
-  ALL = 'ALL'
 }
 
 export interface PlayerState {
@@ -35,4 +35,10 @@ export interface PlayerState {
 export interface LibraryState {
   tracks: Record<string, Track>;
   playlists: Record<string, Playlist>;
+}
+
+export interface Metadata {
+  name: string;
+  description: string;
+  requestFramePermissions: any[];
 }
