@@ -15,27 +15,23 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 h-[110px] bg-white/90 backdrop-blur-3xl border-t border-black/[0.02] flex items-center justify-around px-8 z-[60] pb-safe">
+    <nav className="fixed bottom-0 left-0 right-0 h-[80px] bg-surface-container/90 backdrop-blur-xl border-t border-outline/10 flex items-center justify-around px-4 z-50 pb-safe safe-area-bottom">
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         const Icon = tab.icon;
         return (
-          <motion.button
+          <button
             key={tab.id}
-            whileTap={{ scale: 0.9 }}
             onClick={() => setActiveTab(tab.id)}
-            className="flex flex-col items-center justify-center gap-2 group relative w-1/4 h-full"
+            className="flex flex-col items-center justify-center gap-1 group relative flex-1 h-full pt-3 pb-4"
           >
-            <div className="relative h-12 w-20 flex items-center justify-center">
-              {isActive && (
-                <motion.div layoutId="nav-pill" className="absolute inset-0 bg-[#EADDFF] rounded-[30px]" transition={{ type: 'spring', damping: 20, stiffness: 200 }} />
-              )}
-              <Icon className={`w-8 h-8 relative z-10 transition-colors ${isActive ? 'text-[#21005D]' : 'text-[#49454F]'}`} strokeWidth={isActive ? 3 : 2} />
+            <div className={`relative px-5 py-1 rounded-full transition-colors duration-300 ${isActive ? 'bg-secondary-container' : 'bg-transparent'}`}>
+              <Icon className={`w-6 h-6 transition-colors duration-300 ${isActive ? 'text-secondary-on-container' : 'text-surface-on-variant'}`} strokeWidth={isActive ? 2.5 : 2} />
             </div>
-            <span className={`text-[11px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${isActive ? 'text-[#21005D]' : 'text-[#49454F] opacity-40'}`}>
+            <span className={`text-label-small transition-all duration-300 ${isActive ? 'text-secondary-on-container font-bold' : 'text-surface-on-variant font-medium'}`}>
               {tab.label}
             </span>
-          </motion.button>
+          </button>
         );
       })}
     </nav>

@@ -1,12 +1,9 @@
 
 > vibe---material-3-music-player@0.0.0 dev
-> vite --host
+> vite
 
-Port 3000 is in use, trying another one...
 
-  VITE v6.4.1  ready in 208 ms
+  VITE v6.4.1  ready in 209 ms
 
-  ➜  Local:   http://localhost:3001/
-  ➜  Network: http://192.168.0.2:3001/
-3:52:41 PM [vite] (client) hmr update /index.css?direct, /src/App.tsx
-3:53:03 PM [vite] (client) hmr update /src/App.tsx, /index.css?direct
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.0.2:3000/

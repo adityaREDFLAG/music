@@ -2,26 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --m3-primary: #6750A4;
-  --m3-on-primary: #FFFFFF;
-  --m3-primary-container: #EADDFF;
-  --m3-on-primary-container: #21005D;
-  --m3-secondary: #625B71;
-  --m3-surface: #FEF7FF;
-  --m3-surface-container: #F3EDF7;
-  --m3-surface-variant: #E7E0EB;
-  --m3-outline: #79747E;
-}
-
-body {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  background-color: var(--m3-surface);
-  color: #1C1B1F;
-  overflow: hidden;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-overflow-scrolling: touch;
+@layer base {
+  body {
+    @apply bg-surface text-surface-on font-sans overflow-hidden select-none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* Custom Scrollbar */

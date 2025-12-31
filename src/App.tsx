@@ -33,7 +33,7 @@ export default function App() {
     volume: 1,
   });
   const [currentTime, setCurrentTime] = useState(0);
-  const [themeColor, setThemeColor] = useState('#6750A4');
+  const [themeColor, setThemeColor] = useState('#6750A4'); // Default primary color
   const [loading, setLoading] = useState<{ active: boolean, progress: number, message: string }>({ active: false, progress: 0, message: '' });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -77,12 +77,6 @@ export default function App() {
       isPlaying: true,
       queue: customQueue || (prev.queue.length > 0 ? prev.queue : Object.keys(library.tracks))
     }));
-
-    // In a real app we would extract color from coverArt, here we stick to default or previous logic
-    // For now we removed the color utils to simplify as requested, using default purple or random could work
-    // If we want dynamic color, we need the utility back. But I removed it as part of cleanup.
-    // I'll keep it static or use a simple heuristic if needed.
-    setThemeColor('#6750A4');
 
     dbService.setSetting('lastTrackId', trackId);
   };
@@ -170,13 +164,6 @@ export default function App() {
     try {
       const fileList = Array.from(files);
       const existingTitles = new Set(Object.values(library.tracks).map(t => t.title));
-      // Also checking against raw filenames to match old behavior for some consistency,
-      // but primarily we should check titles after parsing.
-      // However, to avoid expensive parsing of already existing files, we might need a better heuristic.
-      // For now, let's keep it simple: Parse, then check Title.
-      // BUT, parsing EVERYTHING just to check duplicates is slow.
-      // Optimization: We can check file size + name, but we don't store original filename.
-      // Let's check `existingTitles` AFTER parsing.
 
       for (let fIdx = 0; fIdx < fileList.length; fIdx++) {
         const file = fileList[fIdx];
@@ -187,18 +174,12 @@ export default function App() {
 
           for (let i = 0; i < entries.length; i++) {
             const entry = entries[i];
-
-            // Skip macOS hidden files
             if (entry.name.includes('__MACOSX') || entry.name.split('/').pop()?.startsWith('._')) continue;
-
             const rawTitle = entry.name.split('/').pop()!.replace(/\.[^/.]+$/, "");
             const blob = await entry.async('blob');
             const meta = await parseTrackMetadata(blob, rawTitle);
 
-            if (existingTitles.has(meta.title)) {
-              console.log(`Skipping duplicate (title): ${meta.title}`);
-              continue;
-            }
+            if (existingTitles.has(meta.title)) continue;
             existingTitles.add(meta.title);
 
             const id = crypto.randomUUID();
@@ -217,14 +198,10 @@ export default function App() {
           const rawTitle = file.name.replace(/\.[^/.]+$/, "");
           const meta = await parseTrackMetadata(file, rawTitle);
 
-          if (existingTitles.has(meta.title)) {
-            console.log(`Skipping duplicate (title): ${meta.title}`);
-            continue;
-          }
+          if (existingTitles.has(meta.title)) continue;
           existingTitles.add(meta.title);
 
           const id = crypto.randomUUID();
-
           await dbService.saveTrack({
             id,
             title: meta.title,
@@ -255,26 +232,25 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#FEF7FF] text-[#1C1B1F] safe-area-top safe-area-bottom">
+    <div className="flex flex-col h-screen overflow-hidden bg-surface text-surface-on safe-area-top safe-area-bottom">
       <AnimatePresence>{loading.active && <LoadingOverlay {...loading} />}</AnimatePresence>
 
-      <div className="fixed inset-0 -z-10 opacity-[0.12] transition-colors duration-[1500ms]" style={{ background: `radial-gradient(circle at 50% 10%, ${themeColor}, transparent 80%)` }} />
+      <div className="fixed inset-0 -z-10 opacity-[0.05]" style={{ background: `radial-gradient(circle at 50% 0%, ${themeColor}, transparent 70%)` }} />
 
-      <header className="px-10 pt-16 pb-6 flex justify-between items-end bg-gradient-to-b from-white/40 to-transparent flex-shrink-0">
-        <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
-          <h1 className="text-6xl font-black tracking-tighter mb-1 leading-none md:text-5xl lg:text-7xl">
+      <header className="px-6 pt-12 pb-4 flex justify-between items-center bg-surface/80 backdrop-blur-md flex-shrink-0 z-10 sticky top-0">
+        <motion.div initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
+            <h1 className="text-display-small text-surface-on">
             {activeTab === 'home' ? metadata.name.split(' - ')[0] : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
           </h1>
-          <p className="text-xl font-bold opacity-30 tracking-tight">{filteredTracks.length} tracks synced locally</p>
         </motion.div>
 
-        <label className="h-20 w-20 rounded-[38px] bg-[#EADDFF] text-[#21005D] flex items-center justify-center cursor-pointer shadow-[0_12px_40px_rgba(103,80,164,0.2)] active:scale-90 transition-all hover:bg-[#D1C4E9]">
-          <Plus className="w-10 h-10" strokeWidth={3} />
+        <label className="h-14 w-14 rounded-2xl bg-primary-container text-primary-on-container flex items-center justify-center cursor-pointer shadow-elevation-1 active:scale-95 transition-all hover:shadow-elevation-2">
+          <Plus className="w-6 h-6" strokeWidth={2.5} />
           <input type="file" multiple accept="audio/*,.zip" onChange={handleFileUpload} className="hidden" />
         </label>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-10 pb-48 scrollbar-hide scroll-smooth w-full max-w-[1600px] mx-auto">
+      <main className="flex-1 overflow-y-auto px-4 pb-32 scrollbar-hide scroll-smooth w-full max-w-[1600px] mx-auto">
         <AnimatePresence mode="wait">
           <Home filteredTracks={filteredTracks} playTrack={playTrack} activeTab={activeTab} />
           <Library

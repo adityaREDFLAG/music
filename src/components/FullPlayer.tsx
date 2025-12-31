@@ -40,69 +40,127 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 200, mass: 0.8 }}
-          className="fixed inset-0 bg-[#FEF7FF] z-[100] flex flex-col p-12 pb-20 safe-area-top overflow-y-auto"
+          className="fixed inset-0 bg-surface z-[100] flex flex-col p-6 safe-area-top safe-area-bottom overflow-y-auto"
         >
-          <div className="absolute inset-0 -z-10 opacity-[0.2]" style={{ background: `radial-gradient(circle at center, ${themeColor}, transparent 70%)` }} />
+          {/* Ambient Background */}
+          <div className="absolute inset-0 -z-10 opacity-[0.15]" style={{ background: `radial-gradient(circle at center 30%, ${themeColor}, transparent 70%)` }} />
 
-          <div className="flex justify-between items-center mb-16 md:mb-10">
-            <button onClick={onClose} className="w-20 h-20 rounded-[38px] glass flex items-center justify-center border border-black/[0.03] shadow-sm"><ChevronDown className="w-12 h-12" /></button>
-            <div className="text-center">
-              <p className="text-xs font-black tracking-[0.4em] uppercase text-[#6750A4] mb-1 opacity-60">Frequency Active</p>
-              <h2 className="text-base font-black tracking-tight">{currentTrack.album}</h2>
+          {/* Header */}
+          <div className="flex justify-between items-center mb-8">
+            <button onClick={onClose} className="w-12 h-12 rounded-full hover:bg-surface-on/5 flex items-center justify-center transition-colors">
+              <ChevronDown className="w-8 h-8 text-surface-on" />
+            </button>
+            <div className="text-center opacity-0 md:opacity-100 transition-opacity">
+              <span className="text-label-medium text-surface-on-variant uppercase tracking-widest">Now Playing</span>
             </div>
-            <button className="w-20 h-20 rounded-[38px] glass flex items-center justify-center border border-black/[0.03] shadow-sm"><MoreVertical className="w-8 h-8" /></button>
+            <button className="w-12 h-12 rounded-full hover:bg-surface-on/5 flex items-center justify-center transition-colors">
+              <MoreVertical className="w-6 h-6 text-surface-on" />
+            </button>
           </div>
 
-          <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
+          <div className="flex-1 flex flex-col max-w-lg mx-auto w-full">
+            {/* Album Art */}
             <motion.div
               layoutId="artwork"
-              drag="x"
-              onDragEnd={(_, info) => info.offset.x > 100 ? prevTrack() : info.offset.x < -100 && nextTrack()}
-              className="w-full aspect-square rounded-[100px] shadow-[0_60px_120px_-20px_rgba(0,0,0,0.4)] overflow-hidden mb-20 bg-gradient-to-br from-[#EADDFF] to-[#6750A4] flex items-center justify-center relative ring-[16px] ring-white/10 md:mb-10 lg:h-[400px] lg:w-[400px]"
+              className="w-full aspect-square rounded-3xl shadow-elevation-4 overflow-hidden mb-12 bg-surface-container-high flex items-center justify-center relative ring-1 ring-white/10"
             >
-              {currentTrack.coverArt ? <img src={currentTrack.coverArt} className="w-full h-full object-cover" /> : <Music className="w-48 h-48 text-white opacity-20" />}
-              <div className="absolute bottom-16 inset-x-0 flex justify-center text-white/40"><Waveform isPlaying={playerState.isPlaying} /></div>
+              {currentTrack.coverArt ? (
+                <img src={currentTrack.coverArt} className="w-full h-full object-cover" />
+              ) : (
+                <Music className="w-32 h-32 text-surface-on-variant opacity-20" />
+              )}
             </motion.div>
 
-            <div className="w-full flex justify-between items-end mb-16 md:mb-8">
-              <div className="flex-1 min-w-0 pr-10">
-                <motion.h2 initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-7xl font-black tracking-tighter truncate leading-[0.8] mb-4 md:text-5xl">{currentTrack.title}</motion.h2>
-                <motion.p initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.1 }} className="text-3xl font-bold text-[#6750A4] opacity-50 tracking-tight md:text-2xl">{currentTrack.artist}</motion.p>
+            {/* Track Info */}
+            <div className="flex justify-between items-start mb-8">
+              <div className="flex-1 min-w-0 pr-4">
+                <motion.h2 className="text-headline-medium font-medium text-surface-on truncate mb-1">
+                  {currentTrack.title}
+                </motion.h2>
+                <motion.p className="text-title-medium text-surface-on-variant truncate">
+                  {currentTrack.artist}
+                </motion.p>
               </div>
-              <button className="w-24 h-24 rounded-[44px] bg-[#EADDFF] text-[#6750A4] flex items-center justify-center shadow-xl md:w-16 md:h-16 md:rounded-[28px]"><Heart className="w-12 h-12 fill-[#6750A4] md:w-8 md:h-8" strokeWidth={3} /></button>
+              <button className="w-12 h-12 rounded-full hover:bg-surface-on/5 flex items-center justify-center transition-colors flex-shrink-0">
+                <Heart className="w-7 h-7 text-surface-on-variant" />
+              </button>
             </div>
 
-            <div className="w-full mb-16 px-4 md:mb-8">
-              <div className="relative h-8 flex items-center">
-                <input type="range" min="0" max={duration || 0} value={currentTime} onChange={handleSeek} className="absolute w-full h-full opacity-0 cursor-pointer z-30" />
-                <div className="w-full h-8 bg-[#E7E0EB] rounded-full overflow-hidden relative shadow-inner">
-                  <motion.div className="absolute inset-y-0 left-0 bg-[#6750A4] shadow-[0_0_20px_rgba(103,80,164,0.4)]" style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} />
+            {/* Progress Bar */}
+            <div className="w-full mb-10 group">
+              <div className="relative h-4 flex items-center">
+                <input
+                  type="range"
+                  min="0"
+                  max={duration || 0}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  className="absolute w-full h-full opacity-0 cursor-pointer z-30"
+                />
+                <div className="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden relative">
+                  <motion.div
+                    className="absolute inset-y-0 left-0 bg-primary"
+                    style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+                  />
                 </div>
-                <div className="absolute w-12 h-12 bg-[#21005D] border-[8px] border-white rounded-full shadow-2xl z-20 pointer-events-none" style={{ left: `calc(${(currentTime / (duration || 1)) * 100}% - 24px)` }} />
+                {/* Thumb indicator only visible on hover/drag or just create a nice visual one */}
+                <div
+                  className="absolute w-3 h-3 bg-primary rounded-full shadow-sm z-20 pointer-events-none transition-transform group-hover:scale-150"
+                  style={{ left: `calc(${(currentTime / (duration || 1)) * 100}% - 6px)` }}
+                />
               </div>
-              <div className="flex justify-between mt-8 text-sm font-black opacity-30 tracking-[0.3em] tabular-nums uppercase">
+              <div className="flex justify-between mt-2 text-label-small text-surface-on-variant font-medium tabular-nums">
                 <span>{formatTime(currentTime)}</span>
                 <span>{formatTime(duration || 0)}</span>
               </div>
             </div>
 
-            <div className="w-full flex items-center justify-between mb-20 md:mb-10">
-              <button onClick={() => setPlayerState(p => ({ ...p, shuffle: !p.shuffle }))} className={`w-24 h-24 rounded-full flex items-center justify-center ${playerState.shuffle ? 'bg-[#EADDFF] text-[#6750A4]' : 'opacity-20'}`}><Shuffle className="w-10 h-10" strokeWidth={3} /></button>
-              <div className="flex items-center gap-12">
-                <SkipBack onClick={prevTrack} className="w-20 h-20 fill-current cursor-pointer active:scale-90 transition-transform" />
-                <button onClick={togglePlay} className="w-48 h-48 rounded-[72px] bg-[#21005D] text-white flex items-center justify-center shadow-[0_40px_80px_-10px_rgba(33,0,93,0.5)] active:scale-95 transition-all md:w-32 md:h-32 md:rounded-[48px]">
-                  {playerState.isPlaying ? <Pause className="w-24 h-24 fill-current md:w-16 md:h-16" /> : <Play className="w-24 h-24 fill-current translate-x-2 md:w-16 md:h-16" />}
-                </button>
-                <SkipForward onClick={nextTrack} className="w-20 h-20 fill-current cursor-pointer active:scale-90 transition-transform" />
-              </div>
-              <button onClick={() => setPlayerState(p => ({ ...p, repeat: p.repeat === RepeatMode.OFF ? RepeatMode.ALL : p.repeat === RepeatMode.ALL ? RepeatMode.ONE : RepeatMode.OFF }))} className={`w-24 h-24 rounded-full flex items-center justify-center ${playerState.repeat !== RepeatMode.OFF ? 'bg-[#EADDFF] text-[#6750A4]' : 'opacity-20'}`}><Repeat className="w-10 h-10" strokeWidth={3} /></button>
-            </div>
-          </div>
+            {/* Controls */}
+            <div className="flex items-center justify-between mb-12">
+              <button
+                onClick={() => setPlayerState(p => ({ ...p, shuffle: !p.shuffle }))}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${playerState.shuffle ? 'bg-primary-container text-primary-on-container' : 'text-surface-on-variant hover:bg-surface-on/5'}`}
+              >
+                <Shuffle className="w-5 h-5" />
+              </button>
 
-          <div className="flex justify-around pt-12 border-t border-black/[0.03] max-w-lg mx-auto w-full opacity-40">
-            <div className="flex flex-col items-center gap-3"><ListMusic className="w-10 h-10" /><span className="text-xs font-black uppercase tracking-[0.3em]">Queue</span></div>
-            <div className="flex flex-col items-center gap-3"><Volume2 className="w-10 h-10" /><span className="text-xs font-black uppercase tracking-[0.3em]">Device</span></div>
-            <div className="flex flex-col items-center gap-3"><Share2 className="w-10 h-10" /><span className="text-xs font-black uppercase tracking-[0.3em]">Share</span></div>
+              <div className="flex items-center gap-8">
+                <button onClick={prevTrack} className="text-surface-on hover:text-primary transition-colors active:scale-95">
+                  <SkipBack className="w-9 h-9 fill-current" />
+                </button>
+
+                <button
+                  onClick={togglePlay}
+                  className="w-20 h-20 rounded-[28px] bg-primary text-on-primary flex items-center justify-center shadow-elevation-3 hover:shadow-elevation-4 active:scale-95 transition-all"
+                >
+                  {playerState.isPlaying ? (
+                    <Pause className="w-8 h-8 fill-current" />
+                  ) : (
+                    <Play className="w-8 h-8 fill-current translate-x-1" />
+                  )}
+                </button>
+
+                <button onClick={nextTrack} className="text-surface-on hover:text-primary transition-colors active:scale-95">
+                  <SkipForward className="w-9 h-9 fill-current" />
+                </button>
+              </div>
+
+              <button
+                onClick={() => setPlayerState(p => ({ ...p, repeat: p.repeat === RepeatMode.OFF ? RepeatMode.ALL : p.repeat === RepeatMode.ALL ? RepeatMode.ONE : RepeatMode.OFF }))}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors relative ${playerState.repeat !== RepeatMode.OFF ? 'bg-primary-container text-primary-on-container' : 'text-surface-on-variant hover:bg-surface-on/5'}`}
+              >
+                <Repeat className="w-5 h-5" />
+                {playerState.repeat === RepeatMode.ONE && (
+                  <span className="absolute text-[8px] font-bold top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-[1px]">1</span>
+                )}
+              </button>
+            </div>
+
+            <div className="flex justify-center">
+                 <div className="bg-secondary-container/50 px-6 py-2 rounded-full">
+                     <Waveform isPlaying={playerState.isPlaying} />
+                 </div>
+            </div>
           </div>
         </motion.div>
       )}
