@@ -168,6 +168,8 @@ export default function App() {
 
     try {
       const fileList = Array.from(files);
+      const existingTitles = new Set(Object.values(library.tracks).map(t => t.title));
+
       for (let fIdx = 0; fIdx < fileList.length; fIdx++) {
         const file = fileList[fIdx];
         if (file.name.toLowerCase().endsWith('.zip')) {
@@ -177,11 +179,22 @@ export default function App() {
 
           for (let i = 0; i < entries.length; i++) {
             const entry = entries[i];
+
+            // Skip macOS hidden files
+            if (entry.name.includes('__MACOSX') || entry.name.split('/').pop()?.startsWith('._')) continue;
+
+            const title = entry.name.split('/').pop()!.replace(/\.[^/.]+$/, "");
+            if (existingTitles.has(title)) {
+              console.log(`Skipping duplicate: ${title}`);
+              continue;
+            }
+            existingTitles.add(title);
+
             const blob = await entry.async('blob');
             const id = crypto.randomUUID();
             await dbService.saveTrack({
               id,
-              title: entry.name.split('/').pop()!.replace(/\.[^/.]+$/, ""),
+              title,
               artist: 'Local Vibe',
               album: 'Zip Import',
               duration: 0,
@@ -190,10 +203,17 @@ export default function App() {
             setLoading(l => ({ ...l, progress: ((fIdx / fileList.length) * 100) + (((i + 1) / entries.length) * (100 / fileList.length)) }));
           }
         } else {
+          const title = file.name.replace(/\.[^/.]+$/, "");
+          if (existingTitles.has(title)) {
+            console.log(`Skipping duplicate: ${title}`);
+            continue;
+          }
+          existingTitles.add(title);
+
           const id = crypto.randomUUID();
           await dbService.saveTrack({
             id,
-            title: file.name.replace(/\.[^/.]+$/, ""),
+            title,
             artist: 'Local Vibe',
             album: 'Local Upload',
             duration: 0,
