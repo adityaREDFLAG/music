@@ -18,14 +18,18 @@ export interface Track {
 export interface Playlist {
   id: string;
   name: string;
+  description?: string;
+  coverArt?: string;
   trackIds: string[];
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface PlayerState {
   currentTrackId: string | null;
   isPlaying: boolean;
-  queue: string[];
+  queue: string[]; // This is the active queue (shuffled or not)
+  originalQueue: string[]; // Use this to restore order when un-shuffling
   history: string[];
   shuffle: boolean;
   repeat: RepeatMode;

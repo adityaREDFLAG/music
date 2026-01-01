@@ -2,7 +2,7 @@
 import { Track, Playlist } from './types';
 
 const DB_NAME = 'vibe_music_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented version to ensure schema updates if needed, though we check objectStoreNames
 
 export class MusicDB {
   private db: IDBDatabase | null = null;
@@ -69,6 +69,15 @@ export class MusicDB {
     if (!this.db) return;
     const tx = this.db.transaction('playlists', 'readwrite');
     tx.objectStore('playlists').put(playlist);
+    return new Promise((res) => (tx.oncomplete = () => res()));
+  }
+
+  async getPlaylist(id: string): Promise<Playlist | undefined> {
+    if (!this.db) return;
+    return new Promise((res) => {
+      const req = this.db!.transaction('playlists').objectStore('playlists').get(id);
+      req.onsuccess = () => res(req.result);
+    });
   }
 
   async getAllPlaylists(): Promise<Playlist[]> {
@@ -83,6 +92,7 @@ export class MusicDB {
     if (!this.db) return;
     const tx = this.db.transaction('playlists', 'readwrite');
     tx.objectStore('playlists').delete(id);
+    return new Promise((res) => (tx.oncomplete = () => res()));
   }
 
   async deleteTrack(id: string): Promise<void> {
@@ -90,6 +100,7 @@ export class MusicDB {
     const tx = this.db.transaction(['tracks', 'blobs'], 'readwrite');
     tx.objectStore('tracks').delete(id);
     tx.objectStore('blobs').delete(id);
+    return new Promise((res) => (tx.oncomplete = () => res()));
   }
 
   async setSetting(key: string, value: any): Promise<void> {

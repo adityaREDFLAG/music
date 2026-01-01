@@ -2,9 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: 255 183 77; /* Default Pastel Orange #FFB74D */
+}
+
 @layer base {
   body {
-    @apply bg-surface text-surface-on font-sans overflow-hidden select-none;
+    @apply bg-background text-on-background font-sans overflow-hidden select-none;
     -webkit-tap-highlight-color: transparent;
     -webkit-overflow-scrolling: touch;
   }
@@ -12,7 +16,13 @@
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 0px;
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-variant rounded-full;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
@@ -24,31 +34,28 @@
   scrollbar-width: none;
 }
 
-/* iOS Safe Area Padding */
-.safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-.safe-area-top {
-  padding-top: env(safe-area-inset-top);
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 0;
-  height: 0;
-}
-
 /* Glassmorphism utility */
 .glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(30, 30, 30, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.glass-dark {
-  background: rgba(33, 0, 93, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+/* Material 3 Expressive Utils */
+.text-display-large {
+  @apply text-5xl md:text-6xl font-normal tracking-tight;
+}
+.text-headline-medium {
+  @apply text-3xl font-normal;
+}
+.text-label-medium {
+  @apply text-sm font-medium tracking-wide uppercase text-primary;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-on-surface/20 rounded-full;
 }
