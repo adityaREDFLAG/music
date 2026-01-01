@@ -7,30 +7,33 @@ interface WaveformProps {
   barCount?: number;
 }
 
-interface BarConfig {
-  duration: number;
-  delay: number;
-  maxHeight: number;
-}
-
 const Waveform: React.FC<WaveformProps> = React.memo(({ 
   isPlaying, 
-  color = '#FFFFFF', 
-  barCount = 24
+  color = '#3B82F6', // Better default blue
+  barCount = 32
 }) => {
-  // Memoize bar configurations to prevent regeneration on every render
-  const barConfigs = useMemo<BarConfig[]>(() => 
-    Array.from({ length: barCount }, () => ({
-      duration: 0.4 + Math.random() * 0.4, // 0.4s to 0.8s
-      delay: Math.random() * 0.2,
-      maxHeight: 20 + Math.random() * 80, // 20% to 100%
-    })),
+  // Generate unique animation configs for each bar
+  const barConfigs = useMemo(() => 
+    Array.from({ length: barCount }, (_, i) => {
+      // Create varied patterns across the spectrum
+      const position = i / barCount;
+      const baseDuration = 0.5 + Math.sin(position * Math.PI) * 0.3;
+      const phase = Math.random() * Math.PI * 2;
+      
+      return {
+        duration: baseDuration + Math.random() * 0.2,
+        delay: (Math.sin(phase) + 1) * 0.15,
+        minHeight: 8 + Math.random() * 12, // 8-20%
+        maxHeight: 40 + Math.random() * 55, // 40-95%
+        phase,
+      };
+    }),
     [barCount]
   );
 
   return (
     <div 
-      className="flex items-center justify-center gap-[3px] h-12"
+      className="flex items-center justify-center gap-[2.5px] h-12"
       role="img"
       aria-label={isPlaying ? "Audio visualizer - playing" : "Audio visualizer - paused"}
     >
@@ -49,7 +52,13 @@ const Waveform: React.FC<WaveformProps> = React.memo(({
 Waveform.displayName = 'Waveform';
 
 interface BarProps {
-  config: BarConfig;
+  config: {
+    duration: number;
+    delay: number;
+    minHeight: number;
+    maxHeight: number;
+    phase: number;
+  };
   isPlaying: boolean;
   color: string;
 }
@@ -59,32 +68,35 @@ const Bar: React.FC<BarProps> = React.memo(({
   isPlaying, 
   color 
 }) => {
-  const { duration, delay, maxHeight } = config;
+  const { duration, delay, minHeight, maxHeight } = config;
 
   return (
     <motion.div
-      initial={{ height: "10%" }}
+      initial={{ height: `${minHeight}%` }}
       animate={{
-        height: isPlaying ? ["10%", `${maxHeight}%`, "10%"] : "10%",
-        opacity: isPlaying ? 1 : 0.4,
+        height: isPlaying 
+          ? [`${minHeight}%`, `${maxHeight}%`, `${minHeight}%`] 
+          : `${minHeight}%`,
+        opacity: isPlaying ? [0.7, 1, 0.7] : 0.3,
+        scaleY: isPlaying ? [1, 1.05, 1] : 1,
       }}
       transition={{
         duration,
         repeat: Infinity,
-        repeatType: "reverse",
+        repeatType: "mirror",
         delay,
-        ease: "easeInOut",
+        ease: [0.45, 0.05, 0.55, 0.95], // Custom smooth ease
       }}
-      style={{ backgroundColor: color }}
-      className="w-1.5 rounded-full"
+      style={{ 
+        backgroundColor: color,
+        boxShadow: isPlaying ? `0 0 8px ${color}40` : 'none'
+      }}
+      className="w-[3px] rounded-full"
     />
   );
-}, (prevProps, nextProps) => {
-  // Custom comparison: only re-render if playing state or color changes
-  // Config is stable due to useMemo in parent
-  return prevProps.isPlaying === nextProps.isPlaying && 
-         prevProps.color === nextProps.color;
-});
+}, (prev, next) => 
+  prev.isPlaying === next.isPlaying && prev.color === next.color
+);
 
 Bar.displayName = 'Bar';
 
