@@ -71,34 +71,19 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const windowHeight =
     typeof window !== 'undefined' ? window.innerHeight : 1000;
 
-  /* reset drag every open */
+  /* reset drag */
   useEffect(() => {
     dragY.set(0);
   }, [isPlayerOpen]);
 
-  /* sync scrub */
+  /* sync slider when NOT scrubbing */
   useEffect(() => {
-    if (!isScrubbing) setScrubValue(currentTime);
+    if (!isScrubbing) {
+      setScrubValue(currentTime);
+    }
   }, [currentTime, isScrubbing]);
 
-  /* global pointer up for scrub */
-  useEffect(() => {
-    if (!isScrubbing) return;
-
-    const up = () => {
-      setIsScrubbing(false);
-      handleSeek({ target: { value: scrubValue } });
-    };
-
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-    return () => {
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-    };
-  }, [isScrubbing, scrubValue, handleSeek]);
-
-  /* load queue tracks */
+  /* load tracks for queue */
   useEffect(() => {
     if (!isPlayerOpen) return;
     (async () => {
@@ -117,6 +102,23 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
       modes[(modes.indexOf(playerState.repeat) + 1) % modes.length];
     setPlayerState(p => ({ ...p, repeat: next }));
     dbService.setSetting('repeat', next);
+  };
+
+  /* 🔥 LIVE SCRUB HANDLERS (THIS IS THE FIX) */
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Number(e.target.value);
+    setScrubValue(value);
+
+    // seek immediately while dragging
+    handleSeek({ target: { value } });
+  };
+
+  const handleScrubStart = () => {
+    setIsScrubbing(true);
+  };
+
+  const handleScrubEnd = () => {
+    setIsScrubbing(false);
   };
 
   return (
@@ -150,7 +152,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             <div className="absolute inset-0 bg-black/50" />
           </div>
 
-          {/* handle */}
+          {/* drag handle */}
           <div
             onPointerDown={e => dragControls.start(e)}
             className="h-14 flex items-center justify-center"
@@ -195,13 +197,15 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               </div>
             )}
 
-            {/* slider */}
+            {/* 🔥 SLIDER */}
             <div className="mt-8">
               <div className="relative h-1.5 bg-white/10 rounded-full">
                 <div
                   className="absolute h-full bg-white rounded-full"
                   style={{
-                    width: `${(scrubValue / Math.max(duration, 0.01)) * 100}%`,
+                    width: `${
+                      (scrubValue / Math.max(duration, 0.01)) * 100
+                    }%`,
                   }}
                 />
                 <input
@@ -210,9 +214,11 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                   max={Math.max(duration, 0.01)}
                   step={0.01}
                   value={scrubValue}
-                  onChange={e => setScrubValue(+e.target.value)}
-                  onPointerDown={() => setIsScrubbing(true)}
-                  className="absolute inset-0 opacity-0 w-full"
+                  onChange={handleScrubChange}
+                  onPointerDown={handleScrubStart}
+                  onPointerUp={handleScrubEnd}
+                  onTouchEnd={handleScrubEnd}
+                  className="absolute inset-0 opacity-0 w-full cursor-pointer"
                 />
               </div>
 
