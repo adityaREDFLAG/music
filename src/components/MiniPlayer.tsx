@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Music } from 'lucide-react';
+import { Play, Pause } from 'lucide-react';
 import { Track, PlayerState } from '../types';
 
 interface MiniPlayerProps {
@@ -28,43 +28,32 @@ const MiniPlayer: React.FC<MiniPlayerProps> = React.memo(({
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 20, opacity: 0 }}
-        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+        initial={{ y: 100, opacity: 0, scale: 0.95 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 100, opacity: 0, scale: 0.95 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         onClick={onOpen}
-        className="fixed bottom-[100px] left-4 right-4 h-[72px] bg-surface-variant/80 backdrop-blur-xl text-on-surface rounded-[20px] flex items-center px-4 gap-4 shadow-elevation-3 z-[60] cursor-pointer md:left-auto md:right-8 md:w-96 md:bottom-8 border border-outline/10 overflow-hidden"
+        className="fixed bottom-[90px] left-3 right-3 h-[64px] glass rounded-2xl flex items-center px-2 pr-4 shadow-ios-medium z-[60] cursor-pointer md:left-auto md:right-8 md:w-[400px] md:bottom-8 overflow-hidden group border border-white/5"
         role="button"
         tabIndex={0}
-        aria-label={`Now playing: ${currentTrack.title} by ${currentTrack.artist}. Click to open full player.`}
+        aria-label={`Now playing: ${currentTrack.title} by ${currentTrack.artist}`}
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent pointer-events-none" />
-
-        {/* Progress Bar (Background) */}
-        {/* We could add a subtle progress bar at the bottom if needed, but M3 usually puts it inside. */}
-
-        {/* Album Art */}
-        <div className="w-12 h-12 rounded-xl bg-surface-variant-dim overflow-hidden flex-shrink-0 relative shadow-sm z-10">
-          {currentTrack.coverArt ? (
+        {/* Album Art with Spin Animation (optional) or just nice shadow */}
+        <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 relative shadow-md ml-1">
             <img 
-              src={currentTrack.coverArt} 
+              src={currentTrack.coverArt || '/default-album-art.png'}
               className="w-full h-full object-cover" 
-              alt={`${currentTrack.title} album art`}
+              alt=""
               loading="lazy"
             />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-surface-container">
-              <Music className="w-6 h-6 text-on-surface/40" aria-hidden="true" />
-            </div>
-          )}
         </div>
 
         {/* Track Info */}
-        <div className="flex-1 min-w-0 flex flex-col justify-center z-10">
-          <h4 className="text-base font-semibold text-on-surface truncate leading-tight">
+        <div className="flex-1 min-w-0 flex flex-col justify-center px-3">
+          <h4 className="text-[15px] font-semibold text-on-surface truncate leading-tight">
             {currentTrack.title}
           </h4>
-          <p className="text-sm text-on-surface/70 truncate mt-0.5 leading-tight">
+          <p className="text-[13px] text-on-surface/60 truncate mt-0.5 leading-tight font-medium">
             {currentTrack.artist}
           </p>
         </div>
@@ -72,13 +61,13 @@ const MiniPlayer: React.FC<MiniPlayerProps> = React.memo(({
         {/* Play/Pause Button */}
         <button
           onClick={handleTogglePlay}
-          className="w-12 h-12 rounded-full bg-primary text-primary-on-container flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-sm flex-shrink-0 z-10"
+          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 active:bg-white/20 transition-colors flex-shrink-0"
           aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
         >
           {playerState.isPlaying ? (
-            <Pause className="w-6 h-6 fill-current" aria-hidden="true" />
+            <Pause className="w-6 h-6 fill-current text-on-surface" aria-hidden="true" />
           ) : (
-            <Play className="w-6 h-6 fill-current translate-x-0.5" aria-hidden="true" />
+            <Play className="w-6 h-6 fill-current text-on-surface translate-x-0.5" aria-hidden="true" />
           )}
         </button>
       </motion.div>
