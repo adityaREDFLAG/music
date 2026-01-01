@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   motion,
   AnimatePresence,
@@ -105,23 +105,19 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     dbService.setSetting('repeat', next);
   };
 
-  // 1. Update UI immediately while dragging (no seek yet)
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number(e.target.value);
     setScrubValue(value);
   };
 
-  // 2. Start scrubbing (pauses external updates)
-  const handleScrubStart = () => {
+  const handleScrubStart = (e: React.PointerEvent | React.MouseEvent | React.TouchEvent) => {
+    // CRITICAL FIX: Stop the parent motion.div from detecting a drag
+    e.stopPropagation(); 
     setIsScrubbing(true);
   };
 
-  // 3. End scrubbing (commits the seek)
   const handleScrubEnd = () => {
-    // Commit the seek operation only once
     handleSeek({ target: { value: scrubValue } });
-    
-    // Small delay to prevent jitter from old time update arriving late
     setTimeout(() => {
         setIsScrubbing(false);
     }, 50);
@@ -144,7 +140,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           style={{ opacity }}
           onDrag={(_, i) => dragY.set(i.offset.y)}
           onDragEnd={(_, i) => {
-            if (i.offset.y > 150) onClose();
+            if (i.offset.y > 100) onClose(); // Reduced threshold for easier closing
             else dragY.set(0);
           }}
           className="fixed inset-0 z-[100] bg-black flex flex-col"
@@ -166,12 +162,23 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             <div className="absolute inset-0 bg-black/50" />
           </div>
 
-          {/* drag handle */}
-          <div
-            onPointerDown={e => dragControls.start(e)}
-            className="h-14 flex items-center justify-center cursor-grab active:cursor-grabbing flex-shrink-0"
+          {/* Header with Close Button and Drag Handle */}
+          <div 
+             className="flex items-center justify-between px-6 pt-6 pb-2 shrink-0"
+             onPointerDown={e => dragControls.start(e)} // Entire header triggers drag
           >
-            <div className="w-12 h-1.5 bg-white/30 rounded-full" />
+             <button 
+               onClick={onClose} 
+               className="p-2 -ml-2 text-white/70 hover:text-white active:scale-90 transition"
+             >
+                <ChevronDown size={32} />
+             </button>
+             
+             {/* Visual Drag Handle */}
+             <div className="w-12 h-1.5 bg-white/30 rounded-full cursor-grab active:cursor-grabbing" />
+             
+             {/* Spacer for symmetry or Menu button */}
+             <div className="w-10" /> 
           </div>
 
           <main className="flex-1 px-6 pb-10 flex flex-col landscape:flex-row landscape:items-center landscape:justify-center landscape:gap-12 landscape:px-12">
@@ -251,8 +258,12 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               )}
 
               {/* Slider */}
-              <div className="mt-8 landscape:mt-4">
-                <div className="relative h-1.5 bg-white/10 rounded-full group cursor-pointer">
+              {/* Added pointer-events-auto and onPointerDown stopPropagation */}
+              <div 
+                className="mt-8 landscape:mt-4 pointer-events-auto"
+                onPointerDown={(e) => e.stopPropagation()} 
+              >
+                <div className="relative h-1.5 bg-white/10 rounded-full group cursor-pointer touch-none">
                   {/* Visual Progress Bar */}
                   <motion.div
                     className="absolute h-full bg-white rounded-full pointer-events-none"
@@ -276,7 +287,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     onPointerUp={handleScrubEnd}
                     onMouseUp={handleScrubEnd}
                     onTouchEnd={handleScrubEnd}
-                    className="absolute inset-0 opacity-0 w-full h-4 -top-1.5 cursor-pointer touch-none"
+                    className="absolute inset-0 opacity-0 w-full h-4 -top-1.5 cursor-pointer touch-none z-50"
                   />
                 </div>
 
@@ -375,7 +386,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                   className="bg-white/10 p-3 rounded-full hover:bg-white/20 transition-colors"
                 >
                   {showQueue ? (
-                    <ChevronDown className="text-white" />
+                    <ListMusic className="text-green-400" />
                   ) : (
                     <ListMusic className="text-white" />
                   )}
