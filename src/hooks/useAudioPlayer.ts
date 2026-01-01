@@ -10,6 +10,7 @@ export const useAudioPlayer = (
     currentTrackId: null,
     isPlaying: false,
     queue: [],
+    originalQueue: [],
     history: [],
     shuffle: false,
     repeat: RepeatMode.OFF,
@@ -19,10 +20,19 @@ export const useAudioPlayer = (
   const [duration, setDuration] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Keep track of the current object URL to revoke it
   const objectUrlRef = useRef<string | null>(null);
 
-  // Initialize Audio object
+  // Fisher-Yates Shuffle Algorithm
+  const shuffleArray = (array: string[]) => {
+    const newArray = [...array];
+    for (let i = newArray.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+    }
+    return newArray;
+  };
+
+  // Initialize Audio
   useEffect(() => {
     audioRef.current = new Audio();
     const audio = audioRef.current;
@@ -30,39 +40,33 @@ export const useAudioPlayer = (
     const updateProgress = () => setCurrentTime(audio.currentTime);
     const updateDuration = () => setDuration(audio.duration);
 
-    // We need to handle 'ended' in a way that access the latest state,
-    // but we can't easily put it in this useEffect without re-attaching listeners constantly.
-    // So we'll use a separate effect for 'ended' or a ref for the latest player state.
-
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', updateDuration);
 
     return () => {
       audio.removeEventListener('timeupdate', updateProgress);
       audio.removeEventListener('loadedmetadata', updateDuration);
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     };
   }, []);
 
-  // Update volume
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = player.volume;
-    }
+    if (audioRef.current) audioRef.current.volume = player.volume;
   }, [player.volume]);
 
+  // Main Play Function
   const playTrack = async (trackId: string, customQueue?: string[]) => {
     try {
-      const audioBlob = await dbService.getAudioBlob(trackId);
-      if (!audioBlob || !audioRef.current) return;
+      if (!audioRef.current) return;
 
-      // Revoke previous URL to prevent memory leak
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
+      const audioBlob = await dbService.getAudioBlob(trackId);
+      if (!audioBlob) {
+        console.error("Audio blob not found");
+        // Auto skip if not found?
+        return;
       }
 
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       const url = URL.createObjectURL(audioBlob);
       objectUrlRef.current = url;
       audioRef.current.src = url;
@@ -70,18 +74,38 @@ export const useAudioPlayer = (
       try {
         await audioRef.current.play();
       } catch (e) {
-        console.warn("Playback failed (likely user interaction needed):", e);
+        console.warn("Playback failed:", e);
       }
 
       const track = libraryTracks[trackId];
       if (track) updateMediaSession(track);
 
-      setPlayer(prev => ({
-        ...prev,
-        currentTrackId: trackId,
-        isPlaying: true,
-        queue: customQueue || (prev.queue.length > 0 ? prev.queue : Object.keys(libraryTracks))
-      }));
+      setPlayer(prev => {
+        let newQueue = customQueue || (prev.queue.length > 0 ? prev.queue : Object.keys(libraryTracks));
+        let newOriginalQueue = prev.originalQueue.length > 0 ? prev.originalQueue : newQueue;
+
+        // If providing a custom queue, reset original queue too (e.g. playing a playlist)
+        if (customQueue) {
+            newOriginalQueue = [...customQueue];
+        }
+
+        // Handle shuffle if it was already on but we are starting a new context or track
+        if (prev.shuffle && customQueue) {
+            // If we are starting a new playlist in shuffle mode, shuffle it immediately
+            // But keep the requested track first
+            const others = customQueue.filter(id => id !== trackId);
+            const shuffledOthers = shuffleArray(others);
+            newQueue = [trackId, ...shuffledOthers];
+        }
+
+        return {
+            ...prev,
+            currentTrackId: trackId,
+            isPlaying: true,
+            queue: newQueue,
+            originalQueue: newOriginalQueue
+        };
+      });
 
       dbService.setSetting('lastTrackId', trackId);
     } catch (error) {
@@ -100,12 +124,20 @@ export const useAudioPlayer = (
   }, [player.isPlaying]);
 
   const nextTrack = useCallback(() => {
-    const currentIndex = player.queue.indexOf(player.currentTrackId || '');
+    if (!player.currentTrackId || player.queue.length === 0) return;
+
+    const currentIndex = player.queue.indexOf(player.currentTrackId);
+
+    // Repeat ONE logic is handled in 'ended' event mostly, but if user clicks Next manually:
+    // Standard behavior: Go to next track even if Repeat One is on.
+
     if (currentIndex < player.queue.length - 1) {
       playTrack(player.queue[currentIndex + 1]);
     } else if (player.repeat === RepeatMode.ALL) {
+      // Loop back to start
       playTrack(player.queue[0]);
     } else {
+      // End of queue, stop
       setPlayer(prev => ({ ...prev, isPlaying: false }));
     }
   }, [player.queue, player.currentTrackId, player.repeat]);
@@ -118,15 +150,63 @@ export const useAudioPlayer = (
     const currentIndex = player.queue.indexOf(player.currentTrackId || '');
     if (currentIndex > 0) {
       playTrack(player.queue[currentIndex - 1]);
+    } else if (player.repeat === RepeatMode.ALL) {
+       // Loop to end
+       playTrack(player.queue[player.queue.length - 1]);
     }
-  }, [player.queue, player.currentTrackId, currentTime]);
+  }, [player.queue, player.currentTrackId, currentTime, player.repeat]);
 
-  const handleSeek = (time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
+  // Handle Shuffle Toggle
+  useEffect(() => {
+    setPlayer(prev => {
+        // If state didn't change, do nothing
+        // We need to check if the queue actually needs update
+        // This effect runs whenever player state changes, so we need to be careful not to loop
+        // However, we are only responding to the 'shuffle' boolean changing if we were triggering this externally.
+        // Since we update 'shuffle' and 'queue' together in the UI handlers usually, we might not need this effect
+        // BUT, if the user toggles shuffle in the UI, we need to reshuffle the queue.
+
+        // This approach is tricky inside a hook that manages the state.
+        // Better to handle the logic in the toggle function in the UI or expose a toggleShuffle method here.
+        return prev;
+    });
+  }, []); // Empty dependency, we'll expose a dedicated method
+
+  const toggleShuffle = useCallback(() => {
+      setPlayer(prev => {
+          const isShuffling = !prev.shuffle;
+          let newQueue = [...prev.queue];
+
+          if (isShuffling) {
+              // Turn Shuffle ON
+              // Keep current track, shuffle the rest
+              const currentId = prev.currentTrackId;
+              const others = prev.originalQueue.filter(id => id !== currentId);
+              const shuffledOthers = shuffleArray(others);
+              if (currentId) {
+                  newQueue = [currentId, ...shuffledOthers];
+              } else {
+                  newQueue = shuffledOthers;
+              }
+          } else {
+              // Turn Shuffle OFF
+              // Restore original order
+              // We want to keep playing the current track, but the queue should be the original list
+              newQueue = [...prev.originalQueue];
+          }
+
+          dbService.setSetting('shuffle', isShuffling);
+
+          return {
+              ...prev,
+              shuffle: isShuffling,
+              queue: newQueue
+          };
+      });
+  }, []);
+
+  // Update setPlayer wrapper to intercept shuffle changes if needed,
+  // but better to just use toggleShuffle in the UI.
 
   // Handle 'ended' event
   useEffect(() => {
@@ -134,17 +214,43 @@ export const useAudioPlayer = (
     if (!audio) return;
 
     const handleEnd = () => {
-        if (player.repeat === RepeatMode.ONE) {
-            audio.currentTime = 0;
-            audio.play().catch(console.error);
-        } else {
-            nextTrack();
-        }
+        // Must use latest state
+        setPlayer(latestPlayer => {
+            if (latestPlayer.repeat === RepeatMode.ONE) {
+                audio.currentTime = 0;
+                audio.play().catch(console.error);
+                return latestPlayer;
+            } else {
+                // We can't call nextTrack() directly here because it depends on state closure.
+                // We need to calculate next track ID here.
+                const currentIndex = latestPlayer.queue.indexOf(latestPlayer.currentTrackId || '');
+                if (currentIndex < latestPlayer.queue.length - 1) {
+                    playTrack(latestPlayer.queue[currentIndex + 1]);
+                } else if (latestPlayer.repeat === RepeatMode.ALL) {
+                    playTrack(latestPlayer.queue[0]);
+                } else {
+                    return { ...latestPlayer, isPlaying: false };
+                }
+                return latestPlayer;
+            }
+        });
     };
 
     audio.addEventListener('ended', handleEnd);
     return () => audio.removeEventListener('ended', handleEnd);
-  }, [player.repeat, nextTrack]); // Re-bind when repeat mode or nextTrack logic changes
+  }, []); // No dependencies, we use the functional update of setPlayer
+
+  // Watch for Repeat Mode changes to save to DB
+  useEffect(() => {
+      dbService.setSetting('repeat', player.repeat);
+  }, [player.repeat]);
+
+  const handleSeek = (time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
 
   // Media Session Handlers
   useEffect(() => {
@@ -161,11 +267,12 @@ export const useAudioPlayer = (
     setPlayer,
     currentTime,
     duration,
-    audioRef, // Expose ref if needed for visualizer
+    audioRef,
     playTrack,
     togglePlay,
     nextTrack,
     prevTrack,
-    handleSeek
+    handleSeek,
+    toggleShuffle
   };
 };

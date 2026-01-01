@@ -6,13 +6,14 @@ import { dbService } from './db';
 import { Track, LibraryState, RepeatMode } from './types';
 import { useMetadata } from './hooks/useMetadata';
 import { parseTrackMetadata } from './utils/metadata';
+import { extractDominantColor } from './utils/colors';
 import LoadingOverlay from './components/LoadingOverlay';
-import BottomNav from './components/BottomNav';
 import Home from './components/Home';
 import Library from './components/Library';
 import Search from './components/Search';
 import MiniPlayer from './components/MiniPlayer';
 import FullPlayer from './components/FullPlayer';
+import { Layout } from './components/Layout';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { ToastProvider, useToast } from './components/Toast';
 
@@ -61,7 +62,8 @@ function MusicApp() {
     togglePlay,
     nextTrack,
     prevTrack,
-    handleSeek
+    handleSeek,
+    toggleShuffle
   } = useAudioPlayer(library.tracks, updateMediaSession);
 
   // Initial Load
@@ -94,6 +96,26 @@ function MusicApp() {
   const currentTrack = useMemo(() =>
     player.currentTrackId ? library.tracks[player.currentTrackId] : null
   , [player.currentTrackId, library.tracks]);
+
+  // Update Theme based on current track
+  useEffect(() => {
+      if (currentTrack?.coverArt) {
+          extractDominantColor(currentTrack.coverArt).then(color => {
+              if (color) {
+                  // Set CSS variable
+                  const rgb = color.match(/\d+, \d+, \d+/)?.[0];
+                  if (rgb) {
+                      document.documentElement.style.setProperty('--color-primary', rgb);
+                      setThemeColor(color);
+                  }
+              }
+          });
+      } else {
+           // Default Orange #FFB74D -> 255, 183, 77
+           document.documentElement.style.setProperty('--color-primary', '255, 183, 77');
+           setThemeColor('#FFB74D');
+      }
+  }, [currentTrack]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -184,25 +206,23 @@ function MusicApp() {
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-surface text-surface-on safe-area-top safe-area-bottom">
+    <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
       <AnimatePresence>{loading.active && <LoadingOverlay {...loading} />}</AnimatePresence>
 
-      <div className="fixed inset-0 -z-10 opacity-[0.05]" style={{ background: `radial-gradient(circle at 50% 0%, ${themeColor}, transparent 70%)` }} />
-
-      <header className="px-6 pt-12 pb-4 flex justify-between items-center bg-surface/80 backdrop-blur-md flex-shrink-0 z-10 sticky top-0">
+      <header className="pt-4 pb-6 flex justify-between items-center z-10 sticky top-0 bg-background/80 backdrop-blur-md">
         <motion.div initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
-            <h1 className="text-display-small text-surface-on">
+            <h1 className="text-display-small text-on-background">
             {activeTab === 'home' ? metadata.name.split(' - ')[0] : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
           </h1>
         </motion.div>
 
-        <label className="h-14 w-14 rounded-2xl bg-primary-container text-primary-on-container flex items-center justify-center cursor-pointer shadow-elevation-1 active:scale-95 transition-all hover:shadow-elevation-2">
+        <label className="h-12 w-12 rounded-xl bg-primary-container text-primary flex items-center justify-center cursor-pointer hover:bg-primary/20 transition-all">
           <Plus className="w-6 h-6" strokeWidth={2.5} />
           <input type="file" multiple accept="audio/*,.zip" onChange={handleFileUpload} className="hidden" />
         </label>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-4 pb-32 scrollbar-hide scroll-smooth w-full max-w-[1600px] mx-auto">
+      <div className="w-full">
         <AnimatePresence mode="wait">
           <Home filteredTracks={filteredTracks} playTrack={playTrack} activeTab={activeTab} />
           <Library
@@ -222,7 +242,7 @@ function MusicApp() {
             playTrack={playTrack}
           />
         </AnimatePresence>
-      </main>
+      </div>
 
       <MiniPlayer
         currentTrack={currentTrack}
@@ -245,10 +265,9 @@ function MusicApp() {
         duration={duration}
         handleSeek={handleSeekChange}
         themeColor={themeColor}
+        toggleShuffle={toggleShuffle}
       />
-
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
-    </div>
+    </Layout>
   );
 }
 
