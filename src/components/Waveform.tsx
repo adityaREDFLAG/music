@@ -3,50 +3,52 @@ import { motion } from 'framer-motion';
 
 interface WaveformProps {
   isPlaying: boolean;
-  // keeping the prop for future use, but focusing on refined CSS animation for reliability
-  audioRef?: React.MutableRefObject<HTMLAudioElement | null>;
+  color?: string;
+  barCount?: number;
 }
 
-const Waveform: React.FC<WaveformProps> = ({ isPlaying }) => {
-  // We'll use 16 bars for a denser, more professional look
-  const barCount = 16;
-  
+const Waveform: React.FC<WaveformProps> = ({ 
+  isPlaying, 
+  color = '#FFFFFF', 
+  barCount = 24 // Number of bars to render
+}) => {
   return (
-    <div className="flex items-center gap-[3px] h-10 px-2 justify-center">
-      {[...Array(barCount)].map((_, i) => {
-        // Calculate a "base" height to create a bell-curve effect (taller in middle)
-        const distanceFromCenter = Math.abs(i - barCount / 2) / (barCount / 2);
-        const baseHeight = 32 * (1 - distanceFromCenter * 0.5); 
-        
-        return (
-          <motion.div
-            key={i}
-            initial={{ height: 4, opacity: 0.3 }}
-            animate={isPlaying ? {
-              height: [
-                `${baseHeight * 0.4}px`, 
-                `${baseHeight}px`, 
-                `${baseHeight * 0.6}px`, 
-                `${baseHeight * 0.9}px`, 
-                `${baseHeight * 0.4}px`
-              ],
-              opacity: [0.4, 1, 0.7, 1, 0.4],
-            } : { 
-              height: 4, 
-              opacity: 0.2 
-            }}
-            transition={{
-              duration: 0.6 + (i % 3) * 0.1, // Staggered speeds
-              repeat: Infinity,
-              ease: "easeInOut",
-              delay: i * 0.05, // Sequential entry wave
-            }}
-            style={{ backgroundColor: 'white' }}
-            className="w-[3px] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.3)]"
-          />
-        );
-      })}
+    <div className="flex items-center justify-center gap-[3px] h-12">
+      {Array.from({ length: barCount }).map((_, i) => (
+        <Bar key={i} index={i} isPlaying={isPlaying} color={color} />
+      ))}
     </div>
+  );
+};
+
+const Bar: React.FC<{ index: number; isPlaying: boolean; color: string }> = ({ 
+  index, 
+  isPlaying, 
+  color 
+}) => {
+  // Generate random animation parameters for "organic" look
+  const randomDuration = 0.4 + Math.random() * 0.4; // Between 0.4s and 0.8s
+  const randomDelay = Math.random() * 0.2;
+  const maxHeight = 20 + Math.random() * 80; // Height between 20% and 100%
+
+  return (
+    <motion.div
+      initial={{ height: "10%" }}
+      animate={{
+        // If playing, cycle between small and random height. If paused, go to 10%
+        height: isPlaying ? ["10%", `${maxHeight}%`, "10%"] : "10%",
+        opacity: isPlaying ? 1 : 0.5,
+      }}
+      transition={{
+        duration: randomDuration,
+        repeat: Infinity,
+        repeatType: "reverse",
+        delay: randomDelay,
+        ease: "easeInOut",
+      }}
+      style={{ backgroundColor: color }}
+      className="w-1.5 rounded-full"
+    />
   );
 };
 
