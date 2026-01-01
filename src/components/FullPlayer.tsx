@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, useDragControls } from 'framer-motion';
-import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, ListMusic } from 'lucide-react';
-import { Track, PlayerState } from '../types';
+import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, ListMusic, Trash2 } from 'lucide-react';
+import { Track, PlayerState, RepeatMode } from '../types';
 import QueueList from './QueueList';
 import { dbService } from '../db';
+import { extractDominantColor } from '../utils/colors';
 
 interface FullPlayerProps {
   currentTrack: Track | null;
@@ -11,14 +12,16 @@ interface FullPlayerProps {
   isPlayerOpen: boolean;
   onClose: () => void;
   togglePlay: () => void;
+  playTrack: (id: string, options?: any) => void;
   nextTrack: () => void;
   prevTrack: () => void;
   setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
   currentTime: number;
   duration: number;
   handleSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  toggleShuffle?: () => void;
-  onRemoveTrack?: (trackId: string) => void;
+  toggleShuffle: () => void;
+  onRemoveTrack: (trackId: string) => void;
+  themeColor?: string;
 }
 
 const formatTime = (time: number): string => {
@@ -30,8 +33,8 @@ const formatTime = (time: number): string => {
 
 const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
   currentTrack, playerState, isPlayerOpen, onClose,
-  togglePlay, nextTrack, prevTrack, currentTime, 
-  duration, handleSeek
+  togglePlay, playTrack, nextTrack, prevTrack, currentTime,
+  duration, handleSeek, toggleShuffle, onRemoveTrack, setPlayerState
 }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [tracks, setTracks] = useState<Record<string, Track>>({});
@@ -63,28 +66,19 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
     if (isPlayerOpen) loadTracks();
   }, [isPlayerOpen]);
 
-  // Media Session API (Updated to disable seeking)
-  useEffect(() => {
-    if ('mediaSession' in navigator && currentTrack) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist,
-        artwork: [{ src: currentTrack.coverArt || '', sizes: '512x512', type: 'image/png' }]
-      });
-
-      navigator.mediaSession.setActionHandler('play', togglePlay);
-      navigator.mediaSession.setActionHandler('pause', togglePlay);
-      navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
-      navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
-
-      // --- DISABLE LOCKSCREEN SEEKING ---
-      navigator.mediaSession.setActionHandler('seekto', null);
-      navigator.mediaSession.setActionHandler('seekbackward', null);
-      navigator.mediaSession.setActionHandler('seekforward', null);
-    }
-  }, [currentTrack, togglePlay, prevTrack, nextTrack]);
+  // Media Session API should be handled by useAudioPlayer hook, not here.
+  // Removing redundant Media Session Logic from view component to avoid conflicts.
 
   if (!currentTrack) return null;
+
+  const toggleRepeat = () => {
+      const modes: RepeatMode[] = ['OFF', 'ALL', 'ONE'];
+      const currentIdx = modes.indexOf(playerState.repeat);
+      const nextMode = modes[(currentIdx + 1) % modes.length];
+
+      setPlayerState(prev => ({...prev, repeat: nextMode}));
+      dbService.setSetting('repeat', nextMode);
+  };
 
   return (
     <AnimatePresence>
@@ -104,15 +98,21 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
           style={{ y: dragY, opacity }}
           className="fixed inset-0 z-[100] flex flex-col bg-black overflow-hidden"
         >
+          {/* Dynamic Background */}
           <div className="absolute inset-0 z-0 pointer-events-none">
             <motion.img 
+              key={currentTrack.coverArt}
               src={currentTrack.coverArt} 
-              className="w-full h-full object-cover blur-[100px] opacity-40 scale-125"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              transition={{ duration: 1 }}
+              className="w-full h-full object-cover blur-[100px] scale-125"
             />
+            <div className="absolute inset-0 bg-black/40" />
           </div>
 
           <div
-            className="relative z-10 flex flex-col items-center pt-2 pb-6 cursor-grab active:cursor-grabbing"
+            className="relative z-10 flex flex-col items-center pt-safe pb-6 cursor-grab active:cursor-grabbing"
             onPointerDown={(e) => dragControls.start(e)}
           >
             <button onClick={onClose} className="w-full h-10 flex items-center justify-center">
@@ -120,7 +120,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
             </button>
           </div>
 
-          <main className="relative z-10 flex-1 flex flex-col md:flex-row md:items-center md:gap-12 md:px-12 px-8 max-w-7xl mx-auto w-full h-full pb-8 md:pb-12">
+          <main className="relative z-10 flex-1 flex flex-col md:flex-row md:items-center md:gap-12 md:px-12 px-8 max-w-7xl mx-auto w-full h-full pb-safe-bottom">
 
             <AnimatePresence mode="wait">
               {(!showQueue || isLargeScreen) && (
@@ -131,10 +131,13 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                    exit={{ opacity: 0, scale: 0.9 }}
                    className={`flex-1 flex flex-col justify-center ${showQueue ? 'hidden md:flex' : ''}`}
                  >
-                   <div className="aspect-square w-full max-w-md mx-auto rounded-[2rem] overflow-hidden shadow-2xl mb-8 md:mb-0">
+                   <motion.div
+                     layoutId={`cover-${currentTrack.id}`}
+                     className="aspect-square w-full max-w-md mx-auto rounded-[2rem] overflow-hidden shadow-2xl mb-8 md:mb-0"
+                   >
                      <img src={currentTrack.coverArt} className="w-full h-full object-cover" alt="Cover" />
-                   </div>
-                   <div className="mt-8 md:hidden">
+                   </motion.div>
+                   <div className="mt-8 md:hidden text-center">
                      <h1 className="text-3xl font-bold text-white truncate">{currentTrack.title}</h1>
                      <p className="text-xl text-white/50 truncate">{currentTrack.artist}</p>
                    </div>
@@ -149,14 +152,15 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="flex-1 overflow-hidden bg-white/5 rounded-3xl mb-8 p-4 md:order-last w-full h-full"
+                  className="flex-1 overflow-hidden bg-white/5 rounded-3xl mb-8 p-4 md:order-last w-full h-full backdrop-blur-md"
                 >
                   <QueueList 
                     queue={playerState.queue} 
                     currentTrackId={currentTrack.id} 
                     tracks={tracks} 
                     onReorder={() => {}} 
-                    onPlay={() => {}}
+                    onPlay={(id) => playTrack(id, { fromQueue: true })}
+                    onRemove={onRemoveTrack}
                   />
                 </motion.div>
               )}
@@ -171,22 +175,20 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
 
               {/* Slider & Controls */}
               <div className="pb-12 md:pb-0">
-                <div className="relative w-full h-1.5 bg-white/10 rounded-full mb-8">
+                <div className="relative w-full h-1.5 bg-white/10 rounded-full mb-8 group">
                   <div
-                    className="absolute h-full bg-white rounded-full z-0"
+                    className="absolute h-full bg-white rounded-full z-0 transition-all duration-100 ease-linear"
                     style={{ width: `${(currentTime / duration) * 100}%` }}
                   />
                   
-                  {/* --- DISABLED INTERACTIVE INPUT --- */}
                   <input
                     type="range"
                     step="0.1"
                     min="0"
                     max={duration || 0}
                     value={currentTime}
-                    onChange={() => {}} // Remove handleSeek
-                    readOnly           // Prevent keyboard adjustments
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-default z-10 pointer-events-none"
+                    onChange={handleSeek}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
 
                   <div className="flex justify-between mt-4 text-xs text-white/40 font-mono">
@@ -196,15 +198,24 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <Shuffle size={20} className="text-white/40 cursor-pointer hover:text-white" />
+                  <button onClick={toggleShuffle} className={`p-2 transition-colors ${playerState.shuffle ? 'text-primary' : 'text-white/40 hover:text-white'}`}>
+                    <Shuffle size={20} />
+                  </button>
+
                   <div className="flex items-center gap-8">
-                    <SkipBack size={32} fill="white" className="cursor-pointer hover:scale-110 transition-transform" onClick={prevTrack} />
-                    <button onClick={togglePlay} className="w-20 h-20 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform active:scale-95">
+                    <SkipBack size={32} fill="white" className="cursor-pointer hover:scale-110 transition-transform active:scale-95" onClick={prevTrack} />
+                    <button onClick={togglePlay} className="w-20 h-20 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-white/20">
                       {playerState.isPlaying ? <Pause size={32} fill="black" /> : <Play size={32} fill="black" className="ml-1" />}
                     </button>
-                    <SkipForward size={32} fill="white" className="cursor-pointer hover:scale-110 transition-transform" onClick={nextTrack} />
+                    <SkipForward size={32} fill="white" className="cursor-pointer hover:scale-110 transition-transform active:scale-95" onClick={nextTrack} />
                   </div>
-                  <Repeat size={20} className="text-white/40 cursor-pointer hover:text-white" />
+
+                  <button onClick={toggleRepeat} className={`p-2 transition-colors relative ${playerState.repeat !== 'OFF' ? 'text-primary' : 'text-white/40 hover:text-white'}`}>
+                    <Repeat size={20} />
+                    {playerState.repeat === 'ONE' && (
+                        <span className="absolute text-[8px] font-bold top-2 left-1/2 -translate-x-1/2">1</span>
+                    )}
+                  </button>
                 </div>
 
                 <div className="flex justify-center mt-10">

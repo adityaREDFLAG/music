@@ -1,12 +1,12 @@
 import React, { memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Play, Shuffle, ListFilter, Settings, Trash2, PlusCircle, Loader2, MoreVertical } from 'lucide-react';
+import { Music, Play, Shuffle, ListFilter, Settings, Trash2, PlusCircle, Loader2, MoreVertical, X } from 'lucide-react';
 import { Track, PlayerState, Playlist } from '../types';
 import { dbService } from '../db';
 import Playlists from './Playlists';
 import AddToPlaylistModal from './AddToPlaylistModal';
 
-type LibraryTab = 'Songs' | 'Albums' | 'Artists' | 'Playlists';
+type LibraryTab = 'Songs' | 'Albums' | 'Artists' | 'Playlists' | 'Settings';
 
 interface LibraryProps {
   activeTab: string;
@@ -135,6 +135,99 @@ const TrackRow = memo(({
 
 TrackRow.displayName = 'TrackRow';
 
+// --- SETTINGS COMPONENT ---
+const SettingsTab = ({ playerState }: { playerState: PlayerState }) => {
+    const [crossfade, setCrossfade] = React.useState(playerState.crossfadeEnabled || false);
+    const [duration, setDuration] = React.useState(playerState.crossfadeDuration || 5);
+
+    // Sync with global state logic (Usually this would be via a setPlayer method passed down or context)
+    // But since we persist to DB and useAudioPlayer reads from DB/State, we need a way to update it.
+    // The playerState prop is read-only from the parent.
+    // We should probably update the DB directly and let the hook pick it up or require a setPlayerState callback.
+    // Since App.tsx owns the state, we need to pass a setter or an update function.
+    // For now, let's assume we update DB and force a reload or use a callback if available.
+    // Ideally we pass `setPlayer` from `App` -> `Library` -> `SettingsTab`.
+
+    // We will update DB. The hook in useAudioPlayer might not pick it up instantly unless we also update state.
+    // Wait, useAudioPlayer has `setPlayer`. We need to pass that down.
+
+    // For this implementation, I will just update the DB. The user might need to reload or change tracks for it to take effect if we don't update React state.
+    // Actually, I'll modify LibraryProps to accept `setPlayer`.
+
+    // BUT since I can't easily change App.tsx props without seeing it again (I did see it, but I want to minimize diffs),
+    // I will use a custom event or just update DB.
+    // Wait, `useAudioPlayer` does NOT listen to DB changes. It only writes.
+    // So updating DB is not enough for live changes.
+
+    // I will add `setPlayer` to LibraryProps in a later step if needed, or I'll just check if I can modify App.tsx easily.
+    // Yes, I can. I will do that in the next step.
+    // For now, I'll build the UI and make it functional with local state and DB,
+    // and assume the parent will pass a setter.
+
+    // Actually, let's use a callback prop `onUpdateSettings`.
+
+    return (
+        <div className="flex flex-col gap-6 p-4">
+           <h2 className="text-xl font-bold text-on-surface">Playback</h2>
+
+           <div className="bg-surface-variant/30 rounded-2xl p-4 flex flex-col gap-4">
+               <div className="flex items-center justify-between">
+                   <div className="flex flex-col">
+                       <span className="text-lg font-medium text-on-surface">Crossfade</span>
+                       <span className="text-sm text-on-surface/60">Overlap songs for a smooth transition</span>
+                   </div>
+                   <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={crossfade}
+                            onChange={(e) => {
+                                const val = e.target.checked;
+                                setCrossfade(val);
+                                // This needs to propagate up!
+                                // We'll dispatch a custom event for now as a quick fix or rely on parent
+                                window.dispatchEvent(new CustomEvent('update-player-settings', { detail: { crossfadeEnabled: val } }));
+                            }}
+                        />
+                        <div className="w-11 h-6 bg-surface-variant rounded-full peer peer-focus:ring-4 peer-focus:ring-primary/30 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+               </div>
+
+               {crossfade && (
+                   <div className="flex flex-col gap-2 pt-2">
+                       <div className="flex justify-between text-sm text-on-surface/70">
+                           <span>Duration</span>
+                           <span>{duration}s</span>
+                       </div>
+                       <input
+                            type="range"
+                            min="1"
+                            max="12"
+                            step="1"
+                            value={duration}
+                            onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setDuration(val);
+                                window.dispatchEvent(new CustomEvent('update-player-settings', { detail: { crossfadeDuration: val } }));
+                            }}
+                            className="w-full h-2 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
+                       />
+                   </div>
+               )}
+           </div>
+
+           <h2 className="text-xl font-bold text-on-surface mt-4">About</h2>
+           <div className="bg-surface-variant/30 rounded-2xl p-4">
+               <p className="text-on-surface/80">Vibe Music v1.0</p>
+               <p className="text-sm text-on-surface/60 mt-1">
+                   A high-performance, glassmorphic music player built with React, Framer Motion, and Tailwind.
+               </p>
+           </div>
+        </div>
+    );
+};
+
+
 // --- MAIN LIBRARY COMPONENT ---
 const Library: React.FC<LibraryProps> = ({ 
   activeTab, 
@@ -232,8 +325,12 @@ const Library: React.FC<LibraryProps> = ({
         {/* Top Header */}
         <div className="flex items-center justify-between mb-8 pt-4">
             <h1 className="text-display-small font-bold text-on-surface">Library</h1>
-            <button className="p-2 rounded-full hover:bg-surface-variant transition-colors">
-            <Settings className="w-6 h-6 text-on-surface" />
+            <button
+                onClick={() => setLibraryTab('Settings')}
+                aria-label="Settings"
+                className={`p-2 rounded-full transition-colors ${libraryTab === 'Settings' ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant text-on-surface'}`}
+            >
+                <Settings className="w-6 h-6" />
             </button>
         </div>
 
@@ -309,6 +406,10 @@ const Library: React.FC<LibraryProps> = ({
                         load();
                     }}
                 />
+                )}
+
+                {libraryTab === 'Settings' && (
+                    <SettingsTab playerState={playerState} />
                 )}
 
                 {!isLoading && filteredTracks.length === 0 && libraryTab === 'Songs' && (

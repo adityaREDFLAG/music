@@ -34,6 +34,8 @@ export interface PlayerState {
   shuffle: boolean;
   repeat: RepeatMode;
   volume: number;
+  crossfadeEnabled: boolean;
+  crossfadeDuration: number;
 }
 
 export interface LibraryState {

@@ -80,20 +80,21 @@ function MusicApp() {
   useEffect(() => {
     dbService.init().then(async () => {
       await refreshLibrary();
-      const lastId = await dbService.getSetting<string>('lastTrackId');
-      const savedShuffle = await dbService.getSetting<boolean>('shuffle');
-      const savedRepeat = await dbService.getSetting<RepeatMode>('repeat');
-
-      if (lastId) {
-        setPlayer(prev => ({
-          ...prev,
-          currentTrackId: lastId,
-          shuffle: !!savedShuffle,
-          repeat: savedRepeat || RepeatMode.OFF
-        }));
-      }
+      // Most of the state restoration happens inside useAudioPlayer now via 'playerState' key
     });
-  }, [refreshLibrary, setPlayer]);
+  }, [refreshLibrary]);
+
+  // Handle Custom Settings Events (Quick bridge for Settings Tab)
+  useEffect(() => {
+      const handleSettingsUpdate = (e: any) => {
+          const { detail } = e;
+          if (detail) {
+              setPlayer(prev => ({ ...prev, ...detail }));
+          }
+      };
+      window.addEventListener('update-player-settings', handleSettingsUpdate);
+      return () => window.removeEventListener('update-player-settings', handleSettingsUpdate);
+  }, [setPlayer]);
 
   const currentTrack = useMemo(() =>
     player.currentTrackId ? library.tracks[player.currentTrackId] : null
@@ -257,6 +258,7 @@ function MusicApp() {
         isPlayerOpen={isPlayerOpen}
         onClose={() => setIsPlayerOpen(false)}
         togglePlay={togglePlay}
+        playTrack={playTrack}
         nextTrack={nextTrack}
         prevTrack={prevTrack}
         setPlayerState={setPlayer}
