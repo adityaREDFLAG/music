@@ -1,6 +1,6 @@
 import React, { memo, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Play, Sparkles, Shuffle } from 'lucide-react';
+import { Music, Play, Sparkles, Shuffle, ListMusic } from 'lucide-react';
 import { Track } from '../types';
 
 interface HomeProps {
@@ -136,6 +136,13 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
     }
   };
 
+  // 3. Handler for Play All button
+  const handlePlayAll = () => {
+    if (filteredTracks.length > 0) {
+      playTrack(filteredTracks[0].id, { customQueue: filteredTracks.map(t => t.id) });
+    }
+  };
+
   if (activeTab !== 'home') return null;
 
   return (
@@ -166,7 +173,19 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
             </p>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+             {/* New Play All Button */}
+             <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handlePlayAll}
+              disabled={isLoading || filteredTracks.length === 0}
+              className="h-12 px-6 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ListMusic className="w-5 h-5" />
+              <span>Play All</span>
+            </motion.button>
+
              {/* New Shuffle Button */}
             <motion.button
               whileHover={{ scale: 1.05 }}

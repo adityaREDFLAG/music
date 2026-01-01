@@ -10,6 +10,7 @@ interface QueueListProps {
   onReorder: (newQueue: string[]) => void;
   onPlay: (trackId: string) => void;
   onRemove: (trackId: string) => void;
+  onClose?: () => void;
 }
 
 const QueueItem = ({ track, isCurrent, onPlay, onRemove }: { track: Track; isCurrent: boolean; onPlay: () => void; onRemove: () => void }) => {
@@ -72,7 +73,17 @@ const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, on
 
   return (
     <div className="h-full flex flex-col">
-      <h3 className="text-lg font-bold text-white mb-4 px-2">Up Next</h3>
+      <div className="flex items-center justify-between mb-4 px-2">
+        <h3 className="text-lg font-bold text-white">Up Next</h3>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
       <Reorder.Group
         axis="y"
         values={queue}

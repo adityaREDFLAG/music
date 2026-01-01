@@ -197,6 +197,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                     onReorder={(newQueue) => setPlayerState(prev => ({ ...prev, queue: newQueue }))}
                     onPlay={(id) => playTrack(id, { fromQueue: true })}
                     onRemove={onRemoveTrack}
+                    onClose={() => setShowQueue(false)}
                   />
                 </motion.div>
               )}
