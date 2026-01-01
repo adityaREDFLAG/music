@@ -194,7 +194,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                     queue={playerState.queue} 
                     currentTrackId={currentTrack.id} 
                     tracks={tracks} 
-                    onReorder={() => {}} 
+                    onReorder={(newQueue) => setPlayerState(prev => ({ ...prev, queue: newQueue }))}
                     onPlay={(id) => playTrack(id, { fromQueue: true })}
                     onRemove={onRemoveTrack}
                   />
