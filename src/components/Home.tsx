@@ -60,7 +60,7 @@ const TrackCard = memo(({ track, onPlay }: { track: Track; onPlay: (id: string) 
     whileHover="hover"
     whileTap="tap"
     className="group cursor-pointer flex flex-col gap-3 relative"
-    onClick={() => onPlay(track.id)}
+    onClick={() => onPlay(track.id)} // Parent handles queue
   >
     {/* Image Container */}
     <div className="aspect-square rounded-[24px] bg-zinc-900 overflow-hidden relative shadow-md transition-all duration-500 group-hover:shadow-xl group-hover:shadow-black/40 ring-1 ring-white/5">
@@ -132,7 +132,7 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
   const handleShufflePlay = () => {
     if (randomMix.length > 0) {
       const randomIndex = Math.floor(Math.random() * randomMix.length);
-      playTrack(randomMix[randomIndex].id);
+      playTrack(randomMix[randomIndex].id, { customQueue: randomMix.map(t => t.id) });
     }
   };
 
@@ -182,7 +182,7 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => randomMix[0] && playTrack(randomMix[0].id)}
+              onClick={() => randomMix[0] && playTrack(randomMix[0].id, { customQueue: randomMix.map(t => t.id) })}
               disabled={isLoading || filteredTracks.length === 0}
               className="h-12 px-8 rounded-full bg-white text-black font-bold shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -209,7 +209,7 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
                 <TrackCard 
                   key={track.id} 
                   track={track} 
-                  onPlay={playTrack} 
+                  onPlay={(id) => playTrack(id, { customQueue: randomMix.map(t => t.id) })}
                 />
               ))}
             </AnimatePresence>

@@ -355,7 +355,18 @@ const Library: React.FC<LibraryProps> = ({
         {libraryTab === 'Songs' && (
             <div className="flex items-center gap-3 mb-6">
             <button
-                onClick={() => filteredTracks[0] && playTrack(filteredTracks[0].id)}
+                onClick={() => {
+                    if (filteredTracks[0]) {
+                        // For "Shuffle All", we pass the queue but useAudioPlayer handles the shuffling
+                        // if we ensure shuffle mode is on, or we can pre-shuffle here.
+                        // Ideally, playTrack should handle turning on shuffle if explicitly asked,
+                        // but for now let's just populate the queue.
+                        // A better UX for "Shuffle All" usually starts a random track.
+                        const trackIds = filteredTracks.map(t => t.id);
+                        const randomId = trackIds[Math.floor(Math.random() * trackIds.length)];
+                        playTrack(randomId, { customQueue: trackIds });
+                    }
+                }}
                 className="flex-1 h-12 rounded-full bg-primary text-primary-on-container hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 font-medium shadow-sm"
             >
                 <Shuffle className="w-5 h-5" />
@@ -381,7 +392,7 @@ const Library: React.FC<LibraryProps> = ({
                         key={track.id}
                         track={track}
                         index={i}
-                        onPlay={playTrack}
+                        onPlay={(id) => playTrack(id, { customQueue: filteredTracks.map(t => t.id) })}
                         isPlaying={playerState.isPlaying}
                         isCurrentTrack={playerState.currentTrackId === track.id}
                         onDelete={handleDelete}

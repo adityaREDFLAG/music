@@ -38,7 +38,7 @@ const Search: React.FC<SearchProps> = ({ activeTab, searchQuery, setSearchQuery,
           <motion.div
             key={t.id}
             whileTap={{ backgroundColor: 'var(--m3-surface-container-highest)' }}
-            onClick={() => playTrack(t.id)}
+            onClick={() => playTrack(t.id, { customQueue: filteredTracks.map(t => t.id) })}
             className="flex items-center gap-4 p-2 pr-4 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors"
           >
             <div className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">

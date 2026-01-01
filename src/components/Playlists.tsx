@@ -139,7 +139,7 @@ const Playlists: React.FC<PlaylistsProps> = ({ playlists, tracks, playTrack, ref
                 <button
                     onClick={() => {
                          if (selectedPlaylist.trackIds.length > 0) {
-                             playTrack(selectedPlaylist.trackIds[0], selectedPlaylist.trackIds);
+                             playTrack(selectedPlaylist.trackIds[0], { customQueue: selectedPlaylist.trackIds });
                          }
                     }}
                     className="ml-auto bg-primary text-primary-on-container p-3 rounded-full hover:scale-105 transition-transform"
@@ -166,7 +166,7 @@ const Playlists: React.FC<PlaylistsProps> = ({ playlists, tracks, playTrack, ref
                                     <p className="text-on-surface/60 text-sm truncate">{track.artist}</p>
                                 </div>
                                 <button
-                                    onClick={() => playTrack(trackId, selectedPlaylist.trackIds)}
+                                    onClick={() => playTrack(trackId, { customQueue: selectedPlaylist.trackIds })}
                                     className="opacity-0 group-hover:opacity-100 p-2 text-primary bg-primary/10 rounded-full"
                                 >
                                     <Play size={16} fill="currentColor" />
