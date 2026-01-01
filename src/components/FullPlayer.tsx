@@ -55,6 +55,10 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
 
   useEffect(() => {
+    // Force update window height on mount to be sure
+    if (typeof window !== 'undefined') {
+      setWindowHeight(window.innerHeight);
+    }
     const handleResize = () => {
       setIsLargeScreen(window.innerWidth >= 768);
       setWindowHeight(window.innerHeight);
@@ -133,8 +137,8 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
       {isPlayerOpen && (
         <motion.div
           key="full-player"
-          // CRITICAL FIX: Use pixels (numbers) instead of percentages
-          // Mixing drag="y" (numbers) and initial={{y: "100%"}} (strings) causes crashes
+          // CRITICAL FIX: Use pixels (numbers) for initial y to avoid crash/conflict issues
+          // We ensure windowHeight is available or default to a safe value.
           initial={{ y: windowHeight }}
           animate={{ y: 0 }}
           exit={{ y: windowHeight }}
@@ -146,7 +150,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={0.1}
 
-          // We use style for opacity, but we DO NOT bind 'y' here to avoid conflicts
+          // We use style for opacity. dragY is manually updated via onDrag
           style={{ opacity }}
           
           // Manually update the motion value for opacity
