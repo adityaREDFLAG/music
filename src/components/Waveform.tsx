@@ -1,99 +1,52 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
+import { motion } from 'framer-motion';
 
 interface WaveformProps {
   isPlaying: boolean;
-  audioRef: React.MutableRefObject<HTMLAudioElement | null>;
+  // keeping the prop for future use, but focusing on refined CSS animation for reliability
+  audioRef?: React.MutableRefObject<HTMLAudioElement | null>;
 }
 
-const Waveform: React.FC<WaveformProps> = ({ isPlaying, audioRef }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationRef = useRef<number | null>(null);
-
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-
-  useEffect(() => {
-    if (!audioRef.current) return;
-
-    // init audio context ONCE
-    if (!audioContextRef.current) {
-      const AudioCtx =
-        window.AudioContext || (window as any).webkitAudioContext;
-
-      audioContextRef.current = new AudioCtx();
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 64;
-
-      try {
-        sourceRef.current =
-          audioContextRef.current.createMediaElementSource(audioRef.current);
-
-        sourceRef.current.connect(analyserRef.current);
-        analyserRef.current.connect(audioContextRef.current.destination);
-      } catch (e) {
-        console.warn('audio source already connected', e);
-      }
-    }
-
-    const analyser = analyserRef.current;
-    const canvas = canvasRef.current;
-    if (!analyser || !canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
-    const render = () => {
-      analyser.getByteFrequencyData(dataArray);
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const barWidth = canvas.width / bufferLength;
-      let x = 0;
-
-      for (let i = 0; i < bufferLength; i++) {
-        const barHeight = (dataArray[i] / 255) * canvas.height;
-
-        ctx.fillStyle = `rgba(255,255,255,${dataArray[i] / 255})`;
-        ctx.fillRect(
-          x,
-          canvas.height - barHeight,
-          barWidth - 2,
-          barHeight
-        );
-
-        x += barWidth;
-      }
-
-      animationRef.current = requestAnimationFrame(render);
-    };
-
-    if (isPlaying) {
-      audioContextRef.current.resume();
-      render();
-    } else {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [isPlaying, audioRef]);
-
+const Waveform: React.FC<WaveformProps> = ({ isPlaying }) => {
+  // We'll use 16 bars for a denser, more professional look
+  const barCount = 16;
+  
   return (
-    <canvas
-      ref={canvasRef}
-      width={300}
-      height={64}
-      className="w-full h-16"
-    />
+    <div className="flex items-center gap-[3px] h-10 px-2 justify-center">
+      {[...Array(barCount)].map((_, i) => {
+        // Calculate a "base" height to create a bell-curve effect (taller in middle)
+        const distanceFromCenter = Math.abs(i - barCount / 2) / (barCount / 2);
+        const baseHeight = 32 * (1 - distanceFromCenter * 0.5); 
+        
+        return (
+          <motion.div
+            key={i}
+            initial={{ height: 4, opacity: 0.3 }}
+            animate={isPlaying ? {
+              height: [
+                `${baseHeight * 0.4}px`, 
+                `${baseHeight}px`, 
+                `${baseHeight * 0.6}px`, 
+                `${baseHeight * 0.9}px`, 
+                `${baseHeight * 0.4}px`
+              ],
+              opacity: [0.4, 1, 0.7, 1, 0.4],
+            } : { 
+              height: 4, 
+              opacity: 0.2 
+            }}
+            transition={{
+              duration: 0.6 + (i % 3) * 0.1, // Staggered speeds
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: i * 0.05, // Sequential entry wave
+            }}
+            style={{ backgroundColor: 'white' }}
+            className="w-[3px] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.3)]"
+          />
+        );
+      })}
+    </div>
   );
 };
 
