@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Music, PlusCircle, Trash2, Loader2, MoreVertical } from 'lucide-react';
+import { Music, PlusCircle, Trash2, Shuffle, Filter, Loader2 } from 'lucide-react';
 import { Track, LibraryState, PlayerState } from '../types';
 import { dbService } from '../db';
 
@@ -20,16 +20,17 @@ const Library: React.FC<LibraryProps> = ({ activeTab, libraryTab, setLibraryTab,
   if (activeTab !== 'library') return null;
 
   return (
-    <motion.div key="library" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6 pt-2">
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide py-2 pb-4">
+    <motion.div key="library" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-4 pt-2">
+      {/* Tabs */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide py-2">
         {(['Songs', 'Albums', 'Artists', 'Playlists'] as LibraryTab[]).map(t => (
           <button
             key={t}
             onClick={() => setLibraryTab(t)}
-            className={`px-5 py-2.5 rounded-lg text-label-large border transition-all whitespace-nowrap ${
+            className={`px-6 py-2 rounded-full text-label-large transition-all whitespace-nowrap uppercase tracking-wide ${
               libraryTab === t
-                ? 'bg-secondary-container text-secondary-on-container border-transparent'
-                : 'bg-transparent text-surface-on-variant border-outline/30 hover:bg-surface-container-high'
+                ? 'bg-primary text-primary-on font-bold'
+                : 'bg-transparent text-surface-on-variant hover:bg-surface-container-high font-medium'
             }`}
           >
             {t}
@@ -37,8 +38,21 @@ const Library: React.FC<LibraryProps> = ({ activeTab, libraryTab, setLibraryTab,
         ))}
       </div>
 
+      {/* Action Row */}
       {libraryTab === 'Songs' && (
-        <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2 pb-2">
+          <button className="flex items-center gap-2 px-5 py-3 rounded-full bg-secondary-container text-secondary-on-container text-label-large font-medium hover:brightness-110 transition-all flex-1 justify-center">
+             <Shuffle className="w-5 h-5" />
+             <span>Shuffle</span>
+          </button>
+          <button className="w-12 h-12 rounded-full bg-surface-container-high text-surface-on-variant flex items-center justify-center hover:bg-surface-container-highest transition-all">
+             <Filter className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
+      {libraryTab === 'Songs' && (
+        <div className="flex flex-col gap-0">
           {filteredTracks.map((t, i) => {
             const isPlaying = playerState.currentTrackId === t.id;
             return (
@@ -49,32 +63,41 @@ const Library: React.FC<LibraryProps> = ({ activeTab, libraryTab, setLibraryTab,
                 transition={{ delay: i * 0.01 }}
                 whileTap={{ backgroundColor: 'var(--m3-surface-container-highest)' }}
                 onClick={() => playTrack(t.id)}
-                className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-colors ${isPlaying ? 'bg-secondary-container' : 'hover:bg-surface-container-high'}`}
+                className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-colors group ${isPlaying ? 'bg-surface-container-high' : 'hover:bg-surface-container/50'}`}
               >
-                <div className="w-12 h-12 rounded-lg bg-surface-variant overflow-hidden flex items-center justify-center relative flex-shrink-0">
+                <div className="w-14 h-14 rounded-xl bg-surface-variant overflow-hidden flex items-center justify-center relative flex-shrink-0 shadow-sm">
                   {t.coverArt ? (
                     <img src={t.coverArt} className="w-full h-full object-cover" />
                   ) : (
                      <Music className={`w-6 h-6 ${isPlaying ? 'text-primary' : 'text-surface-on-variant opacity-50'}`} />
                   )}
                   {isPlaying && playerState.isPlaying && (
-                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center backdrop-blur-[1px]">
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center backdrop-blur-[1px]">
                       <Loader2 className="w-6 h-6 text-white animate-spin" />
                     </div>
                   )}
                 </div>
 
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <h4 className={`text-body-large truncate ${isPlaying ? 'text-secondary-on-container font-medium' : 'text-surface-on'}`}>{t.title}</h4>
-                  <p className={`text-body-medium truncate ${isPlaying ? 'text-secondary-on-container/70' : 'text-surface-on-variant'}`}>{t.artist}</p>
+                  <h4 className={`text-body-large truncate font-medium ${isPlaying ? 'text-primary' : 'text-surface-on'}`}>{t.title}</h4>
+                  <p className={`text-body-medium truncate ${isPlaying ? 'text-primary/80' : 'text-surface-on-variant'}`}>{t.artist}</p>
                 </div>
 
-                <button
-                  onClick={(e) => { e.stopPropagation(); dbService.deleteTrack(t.id); refreshLibrary(); }}
-                  className="p-3 text-surface-on-variant/50 hover:text-error hover:bg-error-container hover:bg-opacity-20 rounded-full transition-all"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                <div className="relative">
+                    <button
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          if(confirm('Delete track?')) {
+                              dbService.deleteTrack(t.id);
+                              refreshLibrary();
+                          }
+                      }}
+                      className="p-2 text-surface-on-variant/60 hover:text-error hover:bg-error-container rounded-full transition-all"
+                      title="Delete track"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                </div>
               </motion.div>
             );
           })}

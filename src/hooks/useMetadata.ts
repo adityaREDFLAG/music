@@ -8,8 +8,8 @@ export const useMetadata = (): Metadata => {
 export const appConfig = {
     ...metadata,
     theme: {
-        primary: '#6750A4',
-        secondary: '#625B71',
-        tertiary: '#7D5260',
+        primary: '#A8C7FA',
+        secondary: '#C2E7FF',
+        tertiary: '#D7C3FA',
     }
 }

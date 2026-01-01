@@ -10,8 +10,8 @@ interface BottomNavProps {
 const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   const tabs = [
     { id: 'home', icon: HomeIcon, label: 'Home' },
-    { id: 'library', icon: LibraryIcon, label: 'Library' },
     { id: 'search', icon: SearchIcon, label: 'Search' },
+    { id: 'library', icon: LibraryIcon, label: 'Library' },
   ];
 
   return (

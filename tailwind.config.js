@@ -8,44 +8,44 @@ export default {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#6750A4',
-          container: '#EADDFF',
-          on: '#FFFFFF',
-          'on-container': '#21005D',
+          DEFAULT: '#A8C7FA',
+          container: '#004A77',
+          on: '#002E4E',
+          'on-container': '#C2E7FF',
         },
         secondary: {
-          DEFAULT: '#625B71',
-          container: '#E8DEF8',
-          on: '#FFFFFF',
-          'on-container': '#1D192B',
+          DEFAULT: '#C2E7FF',
+          container: '#004A77',
+          on: '#001D35',
+          'on-container': '#C2E7FF',
         },
         tertiary: {
-          DEFAULT: '#7D5260',
-          container: '#FFD8E4',
-          on: '#FFFFFF',
-          'on-container': '#31111D',
+          DEFAULT: '#D7C3FA',
+          container: '#4F378B',
+          on: '#381E72',
+          'on-container': '#EADDFF',
         },
         error: {
-          DEFAULT: '#B3261E',
-          container: '#F9DEDC',
-          on: '#FFFFFF',
-          'on-container': '#410E0B',
+          DEFAULT: '#FFB4AB',
+          container: '#93000A',
+          on: '#690005',
+          'on-container': '#FFDAD6',
         },
         surface: {
-          DEFAULT: '#FEF7FF',
-          on: '#1C1B1F',
-          variant: '#E7E0EB',
-          'on-variant': '#49454F',
-          container: '#F3EDF7',
-          'container-low': '#F7F2FA',
-          'container-high': '#ECE6F0',
-          'container-highest': '#E6E0E9',
-          dim: '#DED8E1',
-          bright: '#FEF7FF',
+          DEFAULT: '#0B1221', // Dark Navy Background
+          on: '#E2E2E6',
+          variant: '#42474E',
+          'on-variant': '#C2C7CF',
+          container: '#1F293F', // Nav bars, cards
+          'container-low': '#1A2335',
+          'container-high': '#2A3650',
+          'container-highest': '#364360',
+          dim: '#0B1221',
+          bright: '#364360',
         },
         outline: {
-          DEFAULT: '#79747E',
-          variant: '#CAC4D0',
+          DEFAULT: '#8C9199',
+          variant: '#42474E',
         },
       },
       fontFamily: {
@@ -57,8 +57,8 @@ export default {
         'lg': '12px',
         'xl': '16px',
         '2xl': '24px',
-        '3xl': '32px', // Large
-        '4xl': '56px', // Extra Large
+        '3xl': '32px',
+        '4xl': '56px',
         'full': '9999px',
       },
       boxShadow: {
