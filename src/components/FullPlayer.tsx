@@ -1,8 +1,18 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, MoreVertical, Music, Heart, Shuffle, SkipBack, Play, Pause, SkipForward, Repeat } from 'lucide-react';
+import { 
+  ChevronDown, 
+  ListMusic, 
+  MessageSquareQuote, 
+  Heart, 
+  Shuffle, 
+  SkipBack, 
+  Play, 
+  Pause, 
+  SkipForward, 
+  Repeat 
+} from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
-import Waveform from './Waveform';
 
 interface FullPlayerProps {
   currentTrack: Track | null;
@@ -26,8 +36,42 @@ const formatTime = (time: number) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+// Helper to generate the squiggle path
+const SquiggleLine = ({ progress }: { progress: number }) => {
+  // Create a repeating sine wave pattern
+  const width = 100;
+  const points = [];
+  for (let i = 0; i <= width; i++) {
+    const x = i;
+    const y = Math.sin(i * 0.8) * 3 + 5; // Amplitude and Frequency
+    points.push(`${x},${y}`);
+  }
+  const pathData = `M ${points.join(' L ')}`;
+
+  return (
+    <svg viewBox="0 0 100 10" className="w-full h-full overflow-visible preserve-3d">
+      {/* Background Track (faded) */}
+      <path d={pathData} fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20" vectorEffect="non-scaling-stroke" />
+      
+      {/* Active Progress (solid) - Masked by width */}
+      <svg width={`${progress}%`} className="overflow-hidden">
+        <path d={pathData} fill="none" stroke="currentColor" strokeWidth="2" className="text-white" vectorEffect="non-scaling-stroke" />
+      </svg>
+      
+      {/* Thumb/Knob */}
+      <circle 
+        cx={`${progress}%`} 
+        cy="50%" 
+        r="4" 
+        fill="currentColor" 
+        className="text-white drop-shadow-md"
+      />
+    </svg>
+  );
+};
+
 const FullPlayer: React.FC<FullPlayerProps> = ({
-  currentTrack, playerState, isPlayerOpen, onClose, togglePlay, nextTrack, prevTrack, setPlayerState, currentTime, duration, handleSeek, themeColor
+  currentTrack, playerState, isPlayerOpen, onClose, togglePlay, nextTrack, prevTrack, setPlayerState, currentTime, duration, handleSeek
 }) => {
   const progress = (currentTime / (duration || 1)) * 100;
 
@@ -35,79 +79,90 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     <AnimatePresence mode="wait">
       {isPlayerOpen && currentTrack && (
         <motion.div
-          key="full-player-overlay" // CRITICAL: Added key for AnimatePresence
+          key="full-player-overlay"
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 30, stiffness: 300, mass: 0.8 }}
-          className="fixed inset-0 bg-black z-[100] flex flex-col safe-area-top safe-area-bottom overflow-hidden"
+          transition={{ type: 'spring', damping: 25, stiffness: 200, mass: 0.8 }}
+          className="fixed inset-0 bg-[#2a1b2a] z-[100] flex flex-col safe-area-top safe-area-bottom overflow-hidden font-sans"
         >
-          {/* Dynamic Background */}
+          {/* Dynamic Background with heavy matte overlay */}
           <div className="absolute inset-0 z-0">
             {currentTrack.coverArt && (
               <motion.img 
                 key={currentTrack.id}
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 0.4 }}
+                animate={{ opacity: 0.3 }}
                 src={currentTrack.coverArt} 
-                className="w-full h-full object-cover blur-[100px] scale-150"
+                className="w-full h-full object-cover blur-[80px] scale-125 saturate-150"
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black" />
+            {/* Dark tint to match the screenshot's high contrast look */}
+            <div className="absolute inset-0 bg-[#1e1e1e]/80 mix-blend-multiply" />
           </div>
 
-          <div className="relative z-10 flex flex-col h-full p-8 md:px-12">
-            {/* Header */}
-            <header className="flex justify-between items-center mb-8">
-              <button onClick={onClose} className="p-2 -ml-2 text-white/80 hover:text-white transition-colors">
-                <ChevronDown size={32} />
+          <div className="relative z-10 flex flex-col h-full p-6 pb-8">
+            
+            {/* Header: Chevron, Title, Action Icons */}
+            <header className="flex justify-between items-center mb-6">
+              <button 
+                onClick={onClose} 
+                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors backdrop-blur-md"
+              >
+                <ChevronDown size={24} />
               </button>
+              
               <div className="text-center">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 font-bold mb-0.5">Playing From</p>
-                <p className="text-sm text-white font-semibold">Your Library</p>
+                <span className="text-sm font-medium text-white/90">Now Playing</span>
               </div>
-              <button className="p-2 -mr-2 text-white/80 hover:text-white transition-colors">
-                <MoreVertical size={24} />
-              </button>
+              
+              <div className="flex gap-3">
+                 <button className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors backdrop-blur-md">
+                  <MessageSquareQuote size={20} />
+                </button>
+                <button className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors backdrop-blur-md">
+                  <ListMusic size={20} />
+                </button>
+              </div>
             </header>
 
-            {/* Artwork Section */}
-            <div className="flex-1 flex items-center justify-center">
+            {/* Album Art */}
+            <div className="flex-1 flex items-center justify-center py-4">
               <motion.div
-                animate={{ 
-                  scale: playerState.isPlaying ? 1 : 0.9,
-                  rotate: playerState.isPlaying ? 0 : -1 
-                }}
-                className="relative aspect-square w-full max-w-[340px] rounded-[32px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden border border-white/10"
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="relative aspect-square w-full max-w-[340px] rounded-[32px] overflow-hidden shadow-2xl"
               >
                 {currentTrack.coverArt ? (
-                  <img src={currentTrack.coverArt} className="w-full h-full object-cover" alt="" />
+                  <img src={currentTrack.coverArt} className="w-full h-full object-cover" alt="Album Art" />
                 ) : (
-                  <div className="w-full h-full bg-neutral-900 flex items-center justify-center">
-                    <Music className="w-20 h-20 text-white/10" />
+                  <div className="w-full h-full bg-neutral-800 flex items-center justify-center">
+                    <span className="text-white/20 text-4xl font-bold">Music</span>
                   </div>
                 )}
               </motion.div>
             </div>
 
-            {/* Track Metadata */}
-            <div className="mt-10 flex justify-between items-end">
-              <div className="flex-1 min-w-0 pr-6">
-                <h1 className="text-3xl font-bold text-white truncate mb-1">{currentTrack.title}</h1>
-                <p className="text-xl text-white/60 truncate">{currentTrack.artist}</p>
-              </div>
-              <button className="p-2 text-white/80 hover:text-white transition-colors">
-                <Heart size={28} />
-              </button>
+            {/* Track Info */}
+            <div className="mt-6 text-center space-y-2">
+              <h1 className="text-2xl font-bold text-white tracking-tight leading-tight px-4 truncate">
+                {currentTrack.title}
+              </h1>
+              <p className="text-lg text-white/60 font-medium truncate">
+                {currentTrack.artist}
+              </p>
             </div>
 
-            {/* Seek Bar */}
-            <div className="mt-8">
-              <div className="relative h-1.5 w-full bg-white/20 rounded-full overflow-hidden">
-                <motion.div 
-                  className="absolute h-full bg-white" 
-                  style={{ width: `${progress}%` }} 
-                />
+            {/* Squiggly Progress Bar */}
+            <div className="mt-10 mb-2 px-2 group">
+              <div className="relative h-6 w-full flex items-center">
+                {/* Visual Squiggle */}
+                <div className="absolute inset-0 pointer-events-none">
+                  <SquiggleLine progress={progress} />
+                </div>
+                
+                {/* Invisible Touch Target */}
                 <input
                   type="range"
                   min="0"
@@ -117,51 +172,72 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                 />
               </div>
-              <div className="flex justify-between mt-3 text-xs font-medium text-white/40 tabular-nums tracking-wider">
+              
+              <div className="flex justify-between mt-2 text-xs font-medium text-white/50 font-mono tracking-widest">
                 <span>{formatTime(currentTime)}</span>
                 <span>{formatTime(duration)}</span>
               </div>
             </div>
 
-            {/* Playback Controls */}
-            <div className="mt-8 mb-4 flex items-center justify-between">
-              <button
+            {/* Main Controls - The "Blocky" Layout */}
+            <div className="mt-6 flex items-center justify-center gap-6">
+              {/* Previous Button */}
+              <button 
+                onClick={prevTrack} 
+                className="w-20 h-20 rounded-[28px] bg-white/10 hover:bg-white/20 backdrop-blur-sm flex items-center justify-center text-white transition-all active:scale-95"
+              >
+                <SkipBack size={28} fill="currentColor" className="opacity-90" />
+              </button>
+
+              {/* Play/Pause Button - Distinctive */}
+              <button 
+                onClick={togglePlay}
+                className="w-24 h-24 rounded-[32px] bg-[#e0b5d6] text-[#3a1d33] hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(224,181,214,0.3)] flex items-center justify-center transition-all"
+              >
+                {playerState.isPlaying ? (
+                  <Pause size={40} fill="currentColor" />
+                ) : (
+                  <Play size={40} fill="currentColor" className="ml-1" />
+                )}
+              </button>
+
+              {/* Next Button */}
+              <button 
+                onClick={nextTrack} 
+                className="w-20 h-20 rounded-[28px] bg-white/10 hover:bg-white/20 backdrop-blur-sm flex items-center justify-center text-white transition-all active:scale-95"
+              >
+                <SkipForward size={28} fill="currentColor" className="opacity-90" />
+              </button>
+            </div>
+
+            {/* Bottom Actions Row */}
+            <div className="mt-8 grid grid-cols-3 gap-4">
+              <button 
                 onClick={() => setPlayerState(p => ({ ...p, shuffle: !p.shuffle }))}
-                className={playerState.shuffle ? "text-blue-400" : "text-white/40"}
+                className={`h-16 rounded-2xl flex items-center justify-center transition-all ${
+                  playerState.shuffle ? "bg-white/20 text-white" : "bg-white/5 text-white/40"
+                }`}
               >
-                <Shuffle size={20} />
+                <Shuffle size={24} />
               </button>
-
-              <div className="flex items-center gap-8">
-                <button onClick={prevTrack} className="text-white hover:scale-110 active:scale-90 transition-transform">
-                  <SkipBack size={40} fill="currentColor" />
-                </button>
-                <button 
-                  onClick={togglePlay}
-                  className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-black hover:scale-105 active:scale-95 transition-transform shadow-lg"
-                >
-                  {playerState.isPlaying ? <Pause size={36} fill="currentColor" /> : <Play size={36} fill="currentColor" className="ml-1" />}
-                </button>
-                <button onClick={nextTrack} className="text-white hover:scale-110 active:scale-90 transition-transform">
-                  <SkipForward size={40} fill="currentColor" />
-                </button>
-              </div>
-
-              <button
+              
+              <button 
                 onClick={() => setPlayerState(p => ({ ...p, repeat: p.repeat === RepeatMode.OFF ? RepeatMode.ALL : p.repeat === RepeatMode.ALL ? RepeatMode.ONE : RepeatMode.OFF }))}
-                className={playerState.repeat !== RepeatMode.OFF ? "text-blue-400 relative" : "text-white/40 relative"}
+                className={`h-16 rounded-2xl flex items-center justify-center relative transition-all ${
+                  playerState.repeat !== RepeatMode.OFF ? "bg-white/20 text-white" : "bg-white/5 text-white/40"
+                }`}
               >
-                <Repeat size={20} />
-                {playerState.repeat === RepeatMode.ONE && <span className="absolute -top-1 -right-1 text-[8px] font-bold">1</span>}
+                <Repeat size={24} />
+                {playerState.repeat === RepeatMode.ONE && (
+                  <span className="absolute top-4 right-4 w-1.5 h-1.5 bg-white rounded-full" />
+                )}
+              </button>
+
+              <button className="h-16 rounded-2xl bg-white/5 flex items-center justify-center text-white/40 hover:text-red-400 hover:bg-white/10 transition-all">
+                <Heart size={24} />
               </button>
             </div>
 
-            {/* Visualizer Footer */}
-            <div className="mt-auto pt-4 flex justify-center">
-              <div className="bg-white/5 backdrop-blur-xl border border-white/10 px-10 py-4 rounded-3xl">
-                <Waveform isPlaying={playerState.isPlaying} />
-              </div>
-            </div>
           </div>
         </motion.div>
       )}
