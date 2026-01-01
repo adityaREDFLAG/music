@@ -2,7 +2,6 @@ import React, { useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, MoreVertical, Music, Heart, Shuffle, SkipBack, Play, Pause, SkipForward, Repeat } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
-import Waveform from './Waveform';
 
 interface FullPlayerProps {
   currentTrack: Track | null;
@@ -50,8 +49,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
   setPlayerState, 
   currentTime, 
   duration, 
-  handleSeek, 
-  themeColor
+  handleSeek
 }) => {
   const progress = useMemo(() => 
     (currentTime / (duration || 1)) * 100, 
@@ -95,7 +93,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
           <AnimatePresence mode="popLayout">
             {currentTrack.coverArt && (
               <motion.img 
-                key={currentTrack.id} // Trigger animation on track change
+                key={currentTrack.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 0.4 }}
                 exit={{ opacity: 0 }}
@@ -143,7 +141,6 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                   className="absolute inset-0"
                 >
                   <motion.div 
-                    // Pulse effect when playing
                     animate={{ 
                       scale: playerState.isPlaying ? 1 : 0.95,
                     }}
@@ -220,7 +217,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
           </div>
 
           {/* Playback Controls */}
-          <div className="mt-6 mb-4 flex items-center justify-between">
+          <div className="mt-6 mb-12 flex items-center justify-between">
             <button
               onClick={toggleShuffle}
               className={`transition-colors p-2 ${playerState.shuffle ? "text-green-400" : "text-white/40"}`}
@@ -270,21 +267,6 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                 <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-current rounded-full" />
               )}
             </button>
-          </div>
-
-          {/* Visualizer Footer */}
-          <div className="mt-auto pt-4 flex justify-center">
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-white/5 backdrop-blur-xl border border-white/10 px-8 py-4 rounded-3xl min-w-[200px]"
-            >
-              <Waveform 
-                isPlaying={playerState.isPlaying} 
-                color={themeColor || "#FFFFFF"} 
-              />
-            </motion.div>
           </div>
         </div>
       </motion.div>
