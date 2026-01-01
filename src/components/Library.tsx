@@ -184,8 +184,7 @@ const SettingsTab = ({ playerState }: { playerState: PlayerState }) => {
                             onChange={(e) => {
                                 const val = e.target.checked;
                                 setCrossfade(val);
-                                // This needs to propagate up!
-                                // We'll dispatch a custom event for now as a quick fix or rely on parent
+                                dbService.setSetting('crossfadeEnabled', val);
                                 window.dispatchEvent(new CustomEvent('update-player-settings', { detail: { crossfadeEnabled: val } }));
                             }}
                         />
@@ -208,6 +207,7 @@ const SettingsTab = ({ playerState }: { playerState: PlayerState }) => {
                             onChange={(e) => {
                                 const val = Number(e.target.value);
                                 setDuration(val);
+                                dbService.setSetting('crossfadeDuration', val);
                                 window.dispatchEvent(new CustomEvent('update-player-settings', { detail: { crossfadeDuration: val } }));
                             }}
                             className="w-full h-2 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"

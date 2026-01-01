@@ -145,32 +145,44 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
 
           <main className="relative z-10 flex-1 flex flex-col md:flex-row md:items-center md:gap-12 md:px-12 px-8 max-w-7xl mx-auto w-full h-full pb-safe-bottom">
 
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="popLayout">
               {(!showQueue || isLargeScreen) && (
                  <motion.div
                    key="art"
                    initial={{ opacity: 0, scale: 0.9 }}
                    animate={{ opacity: 1, scale: 1 }}
                    exit={{ opacity: 0, scale: 0.9 }}
+                   transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                    className={`flex-1 flex flex-col justify-center ${showQueue ? 'hidden md:flex' : ''}`}
                  >
                    {/* -- NEW: Apple Music Style Scale Animation -- */}
                    <motion.div
                      layoutId={`cover-${currentTrack.id}`}
+                     initial={{ opacity: 0, scale: 0.9 }}
                      animate={{ 
+                       opacity: 1,
                        scale: playerState.isPlaying ? 1 : 0.85,
-                       opacity: 1 
                      }}
-                     transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                     exit={{ opacity: 0, scale: 0.8 }}
+                     transition={{
+                        opacity: { duration: 0.4 },
+                        scale: { type: "spring", stiffness: 100, damping: 20 }
+                     }}
                      className="aspect-square w-full max-w-md mx-auto rounded-[2rem] overflow-hidden shadow-2xl mb-8 md:mb-0"
                    >
                      <img src={currentTrack.coverArt} className="w-full h-full object-cover" alt="Cover" />
                    </motion.div>
                    
-                   <div className="mt-8 md:hidden text-center">
+                   <motion.div
+                     initial={{ opacity: 0, y: 10 }}
+                     animate={{ opacity: 1, y: 0 }}
+                     exit={{ opacity: 0, y: -10 }}
+                     key={`text-${currentTrack.id}`}
+                     className="mt-8 md:hidden text-center"
+                   >
                      <h1 className="text-3xl font-bold text-white truncate">{currentTrack.title}</h1>
                      <p className="text-xl text-white/50 truncate">{currentTrack.artist}</p>
-                   </div>
+                   </motion.div>
                  </motion.div>
               )}
             </AnimatePresence>
@@ -188,7 +200,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                     queue={playerState.queue} 
                     currentTrackId={currentTrack.id} 
                     tracks={tracks} 
-                    onReorder={() => {}} 
+                    onReorder={(newQueue) => setPlayerState(prev => ({ ...prev, queue: newQueue }))}
                     onPlay={(id) => playTrack(id, { fromQueue: true })}
                     onRemove={onRemoveTrack}
                   />
