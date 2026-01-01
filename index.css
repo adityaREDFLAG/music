@@ -3,12 +3,12 @@
 @tailwind utilities;
 
 :root {
-  --color-primary: 255 183 77; /* Default Pastel Orange #FFB74D */
+  --color-primary: 250 80 80; /* Apple Music Red-ish default */
 }
 
 @layer base {
   body {
-    @apply bg-background text-on-background font-sans overflow-hidden select-none;
+    @apply bg-background text-on-background font-sans overflow-hidden select-none antialiased;
     -webkit-tap-highlight-color: transparent;
     -webkit-overflow-scrolling: touch;
   }
@@ -16,13 +16,13 @@
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
   @apply bg-transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-surface-variant rounded-full;
+  @apply bg-surface-variant rounded-full hover:bg-outline/50 transition-colors;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
@@ -34,30 +34,31 @@
   scrollbar-width: none;
 }
 
-/* Glassmorphism utility */
+/* Premium Glassmorphism */
 .glass {
-  background: rgba(30, 30, 30, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(24, 24, 27, 0.65); /* Zinc 950 with opacity */
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
-/* Material 3 Expressive Utils */
+.glass-card {
+  background: rgba(39, 39, 42, 0.4); /* Zinc 800 with opacity */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Material 3 / iOS Expressive Utils */
 .text-display-large {
-  @apply text-5xl md:text-6xl font-normal tracking-tight;
+  @apply text-5xl md:text-6xl font-bold tracking-tight;
 }
 .text-headline-medium {
-  @apply text-3xl font-normal;
+  @apply text-3xl font-semibold tracking-tight;
 }
 .text-label-medium {
-  @apply text-sm font-medium tracking-wide uppercase text-primary;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  @apply bg-on-surface/20 rounded-full;
+  @apply text-xs font-semibold tracking-widest uppercase text-on-surface/60;
 }
 
 /* Safe Area Utilities */
@@ -72,4 +73,18 @@
 }
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Range Input Reset & Styling */
+input[type=range] {
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+}
+
+input[type=range]:focus {
+  outline: none;
 }
