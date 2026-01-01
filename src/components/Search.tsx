@@ -12,8 +12,6 @@ interface SearchProps {
 }
 
 const Search: React.FC<SearchProps> = ({ activeTab, searchQuery, setSearchQuery, filteredTracks, playTrack }) => {
-  if (activeTab !== 'search') return null;
-
   return (
     <motion.div key="search" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6 pt-2">
       <div className="sticky top-0 z-20 pt-2 pb-4 bg-surface/95 backdrop-blur-sm">

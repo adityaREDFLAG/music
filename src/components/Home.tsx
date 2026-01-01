@@ -136,8 +136,6 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
     }
   };
 
-  if (activeTab !== 'home') return null;
-
   return (
     <motion.div 
       key="home-screen"

@@ -134,8 +134,7 @@ function MusicApp() {
 
   // --- FILE UPLOAD LOGIC ---
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const processFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setLoading({ active: true, progress: 0, message: 'Warming up the deck...' });
 
@@ -199,6 +198,85 @@ function MusicApp() {
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    processFiles(e.target.files);
+  };
+
+  // --- GLOBAL DRAG & DROP ---
+
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.relatedTarget === null) {
+        setIsDragging(false);
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        processFiles(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }); // Binding on every render to ensure processFiles is fresh (simplest for this scope)
+
+  // --- KEYBOARD SHORTCUTS ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Ignore if focus is on input/textarea
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+        switch (e.code) {
+            case 'Space':
+                e.preventDefault();
+                togglePlay();
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                handleSeek(currentTime + 5);
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                handleSeek(currentTime - 5);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                setPlayer(p => ({ ...p, volume: Math.min(1, p.volume + 0.05) }));
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                setPlayer(p => ({ ...p, volume: Math.max(0, p.volume - 0.05) }));
+                break;
+            case 'KeyM':
+                e.preventDefault();
+                setPlayer(p => ({ ...p, volume: p.volume === 0 ? 1 : 0 }));
+                break;
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSeek, currentTime, setPlayer]);
+
   return (
     <>
       <Layout 
@@ -229,6 +307,7 @@ function MusicApp() {
                 setLibraryTab={setLibraryTab}
                 filteredTracks={filteredTracks}
                 playerState={player}
+                setPlayerState={setPlayer}
                 playTrack={playTrack}
                 refreshLibrary={refreshLibrary}
               />
@@ -248,7 +327,24 @@ function MusicApp() {
       </Layout>
 
       {/* OVERLAYS */}
-      <AnimatePresence>{loading.active && <LoadingOverlay {...loading} />}</AnimatePresence>
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-primary/20 backdrop-blur-sm border-4 border-primary border-dashed m-4 rounded-3xl flex items-center justify-center pointer-events-none"
+          >
+             <div className="bg-surface p-6 rounded-2xl shadow-xl flex flex-col items-center gap-4">
+                 <div className="w-16 h-16 bg-primary-container rounded-full flex items-center justify-center">
+                    <Plus className="w-8 h-8 text-primary" />
+                 </div>
+                 <h2 className="text-xl font-bold text-on-surface">Drop files to add</h2>
+             </div>
+          </motion.div>
+        )}
+        {loading.active && <LoadingOverlay {...loading} />}
+      </AnimatePresence>
 
       <MiniPlayer
         currentTrack={currentTrack}

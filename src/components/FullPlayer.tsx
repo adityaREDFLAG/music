@@ -15,6 +15,8 @@ import {
   Repeat,
   ListMusic,
   ChevronDown,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import QueueList from './QueueList';
@@ -292,6 +294,31 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 <div className="flex justify-between text-xs text-white/40 mt-2 font-mono font-medium">
                   <span>{formatTime(scrubValue)}</span>
                   <span>{formatTime(duration)}</span>
+                </div>
+              </div>
+
+              {/* Volume Slider */}
+              <div className="mt-6 flex items-center gap-4 px-2" onPointerDown={(e) => e.stopPropagation()}>
+                <button
+                   onClick={() => setPlayerState(p => ({ ...p, volume: p.volume === 0 ? 1 : 0 }))}
+                   className="text-white/50 hover:text-white transition-colors"
+                >
+                    {playerState.volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                </button>
+                <div className="flex-1 relative h-1 bg-white/10 rounded-full group cursor-pointer">
+                   <div
+                        className="absolute h-full bg-white/50 group-hover:bg-white rounded-full transition-colors"
+                        style={{ width: `${playerState.volume * 100}%` }}
+                   />
+                   <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={playerState.volume}
+                        onChange={(e) => setPlayerState(p => ({ ...p, volume: Number(e.target.value) }))}
+                        className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer"
+                   />
                 </div>
               </div>
 

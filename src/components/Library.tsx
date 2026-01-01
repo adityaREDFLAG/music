@@ -14,7 +14,8 @@ interface LibraryProps {
   setLibraryTab: (tab: LibraryTab) => void;
   filteredTracks: Track[];
   playerState: PlayerState;
-  playTrack: (id: string) => void;
+  setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
+  playTrack: (id: string, options?: any) => void;
   refreshLibrary: () => void;
   isLoading?: boolean;
 }
@@ -136,36 +137,7 @@ const TrackRow = memo(({
 TrackRow.displayName = 'TrackRow';
 
 // --- SETTINGS COMPONENT ---
-const SettingsTab = ({ playerState }: { playerState: PlayerState }) => {
-    const [crossfade, setCrossfade] = React.useState(playerState.crossfadeEnabled || false);
-    const [duration, setDuration] = React.useState(playerState.crossfadeDuration || 5);
-
-    // Sync with global state logic (Usually this would be via a setPlayer method passed down or context)
-    // But since we persist to DB and useAudioPlayer reads from DB/State, we need a way to update it.
-    // The playerState prop is read-only from the parent.
-    // We should probably update the DB directly and let the hook pick it up or require a setPlayerState callback.
-    // Since App.tsx owns the state, we need to pass a setter or an update function.
-    // For now, let's assume we update DB and force a reload or use a callback if available.
-    // Ideally we pass `setPlayer` from `App` -> `Library` -> `SettingsTab`.
-
-    // We will update DB. The hook in useAudioPlayer might not pick it up instantly unless we also update state.
-    // Wait, useAudioPlayer has `setPlayer`. We need to pass that down.
-
-    // For this implementation, I will just update the DB. The user might need to reload or change tracks for it to take effect if we don't update React state.
-    // Actually, I'll modify LibraryProps to accept `setPlayer`.
-
-    // BUT since I can't easily change App.tsx props without seeing it again (I did see it, but I want to minimize diffs),
-    // I will use a custom event or just update DB.
-    // Wait, `useAudioPlayer` does NOT listen to DB changes. It only writes.
-    // So updating DB is not enough for live changes.
-
-    // I will add `setPlayer` to LibraryProps in a later step if needed, or I'll just check if I can modify App.tsx easily.
-    // Yes, I can. I will do that in the next step.
-    // For now, I'll build the UI and make it functional with local state and DB,
-    // and assume the parent will pass a setter.
-
-    // Actually, let's use a callback prop `onUpdateSettings`.
-
+const SettingsTab = ({ playerState, setPlayerState }: { playerState: PlayerState, setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>> }) => {
     return (
         <div className="flex flex-col gap-6 p-4">
            <h2 className="text-xl font-bold text-on-surface">Playback</h2>
@@ -180,35 +152,31 @@ const SettingsTab = ({ playerState }: { playerState: PlayerState }) => {
                         <input
                             type="checkbox"
                             className="sr-only peer"
-                            checked={crossfade}
+                            checked={playerState.crossfadeEnabled || false}
                             onChange={(e) => {
                                 const val = e.target.checked;
-                                setCrossfade(val);
-                                // This needs to propagate up!
-                                // We'll dispatch a custom event for now as a quick fix or rely on parent
-                                window.dispatchEvent(new CustomEvent('update-player-settings', { detail: { crossfadeEnabled: val } }));
+                                setPlayerState(p => ({ ...p, crossfadeEnabled: val }));
                             }}
                         />
                         <div className="w-11 h-6 bg-surface-variant rounded-full peer peer-focus:ring-4 peer-focus:ring-primary/30 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                     </label>
                </div>
 
-               {crossfade && (
+               {playerState.crossfadeEnabled && (
                    <div className="flex flex-col gap-2 pt-2">
                        <div className="flex justify-between text-sm text-on-surface/70">
                            <span>Duration</span>
-                           <span>{duration}s</span>
+                           <span>{playerState.crossfadeDuration || 5}s</span>
                        </div>
                        <input
                             type="range"
                             min="1"
                             max="12"
                             step="1"
-                            value={duration}
+                            value={playerState.crossfadeDuration || 5}
                             onChange={(e) => {
                                 const val = Number(e.target.value);
-                                setDuration(val);
-                                window.dispatchEvent(new CustomEvent('update-player-settings', { detail: { crossfadeDuration: val } }));
+                                setPlayerState(p => ({ ...p, crossfadeDuration: val }));
                             }}
                             className="w-full h-2 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
                        />
@@ -236,12 +204,16 @@ const Library: React.FC<LibraryProps> = ({
   setLibraryTab, 
   filteredTracks, 
   playerState, 
+  setPlayerState,
   playTrack, 
   refreshLibrary,
   isLoading = false
 }) => {
   const [playlists, setPlaylists] = React.useState<Record<string, Playlist>>({});
   const [tracksMap, setTracksMap] = React.useState<Record<string, Track>>({});
+
+  // Sorting
+  const [sortOption, setSortOption] = React.useState<'added' | 'title' | 'artist'>('added');
 
   // Playlist Modal State
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = React.useState(false);
@@ -258,8 +230,6 @@ const Library: React.FC<LibraryProps> = ({
     };
     load();
   }, [activeTab, libraryTab, refreshLibrary]);
-
-  if (activeTab !== 'library') return null;
 
   const handleDelete = (id: string) => {
     if(confirm('Delete track permanently?')) {
@@ -355,28 +325,42 @@ const Library: React.FC<LibraryProps> = ({
         {/* Action Row (Only for Songs) */}
         {libraryTab === 'Songs' && (
             <div className="flex items-center gap-3 mb-6">
-            <button
-                onClick={() => {
-                    if (filteredTracks[0]) {
-                        // For "Shuffle All", we pass the queue but useAudioPlayer handles the shuffling
-                        // if we ensure shuffle mode is on, or we can pre-shuffle here.
-                        // Ideally, playTrack should handle turning on shuffle if explicitly asked,
-                        // but for now let's just populate the queue.
-                        // A better UX for "Shuffle All" usually starts a random track.
-                        const trackIds = filteredTracks.map(t => t.id);
-                        const randomId = trackIds[Math.floor(Math.random() * trackIds.length)];
-                        playTrack(randomId, { customQueue: trackIds });
-                    }
-                }}
-                className="flex-1 h-12 rounded-full bg-primary text-primary-on-container hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 font-medium shadow-sm"
-            >
-                <Shuffle className="w-5 h-5" />
-                <span>Shuffle All</span>
-            </button>
+                <button
+                    onClick={() => {
+                        if (filteredTracks[0]) {
+                            const trackIds = filteredTracks.map(t => t.id);
+                            const randomId = trackIds[Math.floor(Math.random() * trackIds.length)];
+                            playTrack(randomId, { customQueue: trackIds });
+                        }
+                    }}
+                    className="flex-1 h-12 rounded-full bg-primary text-primary-on-container hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 font-medium shadow-sm"
+                >
+                    <Shuffle className="w-5 h-5" />
+                    <span>Shuffle All</span>
+                </button>
 
-            <button className="h-12 w-12 rounded-full bg-surface-variant text-on-surface flex items-center justify-center hover:bg-surface-variant-dim transition-colors">
-                <ListFilter className="w-5 h-5" />
-            </button>
+                <div className="relative group">
+                    <button className="h-12 w-12 rounded-full bg-surface-variant text-on-surface flex items-center justify-center hover:bg-surface-variant-dim transition-colors">
+                        <ListFilter className="w-5 h-5" />
+                    </button>
+                    <div className="absolute right-0 top-14 w-40 bg-surface-container-high rounded-xl shadow-xl overflow-hidden hidden group-hover:block z-20">
+                         <div className="p-2 flex flex-col gap-1">
+                             {[
+                                 { label: 'Recently Added', val: 'added' },
+                                 { label: 'Title', val: 'title' },
+                                 { label: 'Artist', val: 'artist' }
+                             ].map((opt) => (
+                                 <button
+                                    key={opt.val}
+                                    onClick={() => setSortOption(opt.val as any)}
+                                    className={`text-left px-3 py-2 rounded-lg text-sm ${sortOption === opt.val ? 'bg-primary/20 text-primary' : 'text-on-surface hover:bg-white/5'}`}
+                                 >
+                                     {opt.label}
+                                 </button>
+                             ))}
+                         </div>
+                    </div>
+                </div>
             </div>
         )}
 
@@ -388,17 +372,23 @@ const Library: React.FC<LibraryProps> = ({
             <AnimatePresence mode="popLayout">
                 {libraryTab === 'Songs' && (
                 <div className="flex flex-col gap-1 w-full">
-                    {filteredTracks.map((track, i) => (
-                    <TrackRow
-                        key={track.id}
-                        track={track}
-                        index={i}
-                        onPlay={(id) => playTrack(id, { customQueue: filteredTracks.map(t => t.id) })}
-                        isPlaying={playerState.isPlaying}
-                        isCurrentTrack={playerState.currentTrackId === track.id}
-                        onDelete={handleDelete}
-                        onAddToPlaylist={handleAddToPlaylistClick}
-                    />
+                    {[...filteredTracks]
+                        .sort((a, b) => {
+                            if (sortOption === 'title') return a.title.localeCompare(b.title);
+                            if (sortOption === 'artist') return a.artist.localeCompare(b.artist);
+                            return b.addedAt - a.addedAt;
+                        })
+                        .map((track, i) => (
+                        <TrackRow
+                            key={track.id}
+                            track={track}
+                            index={i}
+                            onPlay={(id) => playTrack(id, { customQueue: filteredTracks.map(t => t.id) })}
+                            isPlaying={playerState.isPlaying}
+                            isCurrentTrack={playerState.currentTrackId === track.id}
+                            onDelete={handleDelete}
+                            onAddToPlaylist={handleAddToPlaylistClick}
+                        />
                     ))}
                 </div>
                 )}
@@ -421,7 +411,7 @@ const Library: React.FC<LibraryProps> = ({
                 )}
 
                 {libraryTab === 'Settings' && (
-                    <SettingsTab playerState={playerState} />
+                    <SettingsTab playerState={playerState} setPlayerState={setPlayerState} />
                 )}
 
                 {!isLoading && filteredTracks.length === 0 && libraryTab === 'Songs' && (
