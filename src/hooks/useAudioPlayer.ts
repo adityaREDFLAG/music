@@ -8,7 +8,7 @@ export const useAudioPlayer = (
   libraryTracks: Record<string, Track>,
   updateMediaSession: (track: Track) => void
 ) => {
-  // State
+  // --- STATE ---
   const [player, setPlayer] = useState<PlayerState>({
     currentTrackId: null,
     isPlaying: false,
@@ -24,87 +24,34 @@ export const useAudioPlayer = (
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // Track which audio element is primary (0 or 1)
-  // We use state to force re-render when the primary element swaps, ensuring listeners are re-bound.
+  // --- AUDIO ARCHITECTURE (DOUBLE BUFFER) ---
+  // We use two audio elements to achieve gapless crossfading.
+  // 'activeIdx' points to which element is currently the "Primary" (playing out loud).
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // Refs for Audio Elements (Double Buffer)
   const audio1Ref = useRef<HTMLAudioElement | null>(null);
   const audio2Ref = useRef<HTMLAudioElement | null>(null);
+  
+  // Logic Control Refs
   const fadeIntervalRef = useRef<any>(null);
-  const nextTrackStartedRef = useRef<boolean>(false); // Prevent multiple triggers
+  const nextTrackStartedRef = useRef<boolean>(false); 
   const isTransitioningRef = useRef<boolean>(false);
 
-  // Helper: Get Audio Elements
+  // --- HELPERS ---
+
+  // Get the Primary (Active) and Secondary (Next) audio elements based on current index
   const getAudioElements = useCallback(() => {
     if (activeIdx === 0) {
-      return {
-        primary: audio1Ref.current,
-        secondary: audio2Ref.current
-      };
+      return { primary: audio1Ref.current, secondary: audio2Ref.current };
     } else {
-      return {
-        primary: audio2Ref.current,
-        secondary: audio1Ref.current
-      };
+      return { primary: audio2Ref.current, secondary: audio1Ref.current };
     }
   }, [activeIdx]);
 
-  // Helper: Persist State
   const saveState = useCallback((state: PlayerState) => {
     dbService.setSetting('playerState', state);
   }, []);
 
-  // Initialize Audio Elements
-  useEffect(() => {
-    const initAudio = () => {
-      const a = new Audio();
-      a.preload = 'auto';
-      return a;
-    };
-    audio1Ref.current = initAudio();
-    audio2Ref.current = initAudio();
-    // activeIdx defaults to 0, so audio1 is primary initially.
-
-    // Load saved state
-    dbService.getSetting<PlayerState>('playerState').then(saved => {
-      if (saved) {
-        setPlayer(prev => ({
-           ...prev,
-           ...saved,
-           isPlaying: false // Don't auto-play on load
-        }));
-        // If there was a track, we might want to load it into the primary audio (paused)
-        if (saved.currentTrackId) {
-             dbService.getAudioBlob(saved.currentTrackId).then(blob => {
-                 if (blob && audio1Ref.current) {
-                     audio1Ref.current.src = URL.createObjectURL(blob);
-                     audio1Ref.current.currentTime = 0; // Reset or save position? Reset for now.
-                 }
-             });
-        }
-      }
-    });
-
-    return () => {
-      if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
-      // cleanup blobs?
-    };
-  }, []);
-
-  // Sync Volume
-  useEffect(() => {
-    if (audio1Ref.current) audio1Ref.current.volume = player.volume;
-    if (audio2Ref.current) audio2Ref.current.volume = player.volume;
-  }, [player.volume]);
-
-  // Save state on change
-  useEffect(() => {
-    saveState(player);
-  }, [player, saveState]);
-
-
-  // Helper: Shuffle
   const shuffleArray = (array: string[]) => {
     const newArray = [...array];
     for (let i = newArray.length - 1; i > 0; i--) {
@@ -114,7 +61,64 @@ export const useAudioPlayer = (
     return newArray;
   };
 
-  // --- CORE PLAYBACK LOGIC ---
+  // --- INITIALIZATION ---
+
+  useEffect(() => {
+    const initAudio = () => {
+      const a = new Audio();
+      a.preload = 'auto';
+      // iOS Safari Fix: Unmute explicitly required on some versions
+      a.playsInline = true; 
+      return a;
+    };
+
+    audio1Ref.current = initAudio();
+    audio2Ref.current = initAudio();
+
+    // Load persisted state
+    dbService.getSetting<PlayerState>('playerState').then(saved => {
+      if (saved) {
+        setPlayer(prev => ({
+           ...prev,
+           ...saved,
+           isPlaying: false // Always start paused to respect autoplay policies
+        }));
+        
+        // Restore last track to Primary (Paused)
+        if (saved.currentTrackId) {
+             dbService.getAudioBlob(saved.currentTrackId).then(blob => {
+                 if (blob && audio1Ref.current) {
+                     audio1Ref.current.src = URL.createObjectURL(blob);
+                     audio1Ref.current.currentTime = 0; 
+                 }
+             });
+        }
+      }
+    });
+
+    return () => {
+      if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+      // Optional: Revoke ObjectURLs here if needed
+    };
+  }, []);
+
+  // Sync Master Volume to both players
+  useEffect(() => {
+    // Note: During crossfade, volume is manually controlled by the interval.
+    // This effect handles static volume changes.
+    if (!isTransitioningRef.current) {
+        if (audio1Ref.current) audio1Ref.current.volume = player.volume;
+        if (audio2Ref.current) audio2Ref.current.volume = player.volume;
+    }
+  }, [player.volume]);
+
+  // Save state on change
+  useEffect(() => {
+    saveState(player);
+  }, [player, saveState]);
+
+
+  // --- CORE LOGIC: PLAY TRACK ---
 
   const playTrack = useCallback(async (trackId: string, options: {
     immediate?: boolean;
@@ -130,17 +134,17 @@ export const useAudioPlayer = (
       const audioBlob = await dbService.getAudioBlob(trackId);
       if (!audioBlob) {
         console.error(`Audio blob not found for ${trackId}`);
-        // Logic to skip if not found could go here
         return;
       }
       const url = URL.createObjectURL(audioBlob);
 
-      // Prepare Queue
+      // 1. Update Queue State
       setPlayer(prev => {
         let newQueue = prev.queue;
         let newOriginalQueue = prev.originalQueue;
 
         if (customQueue) {
+          // New Playlist/Context
           newQueue = [...customQueue];
           newOriginalQueue = [...customQueue];
           if (prev.shuffle) {
@@ -148,66 +152,31 @@ export const useAudioPlayer = (
              newQueue = [trackId, ...shuffleArray(others)];
           }
         } else if (!fromQueue) {
-             // Handle "Play Next" behavior or Inject into Queue
-             // If the track is not in queue (or even if it is, but we clicked it from outside queue context),
-             // we want to play it immediately and ensure the queue continues.
-
-             // Strategy: Insert track immediately after current playing track (if any), or at top.
-             // If queue was empty, it becomes the queue.
+             // "Play Next" / Injection Logic
              if (prev.queue.length === 0) {
                  newQueue = [trackId];
                  newOriginalQueue = [trackId];
              } else {
-                 // If track is already in queue, we might just jump to it?
-                 // But user asked "without resetting... session".
-                 // If we jump, we might disrupt the flow if it was far away.
-                 // Let's implement "Insert Next" logic implicitly.
-                 // Actually, often users want to play the song and then continue with what was next?
-                 // Or play the song and then continue with the *rest of the queue*.
-
-                 // If we just insert it at the next position:
                  const currentIdx = prev.queue.indexOf(prev.currentTrackId || '');
-                 const insertIdx = currentIdx >= 0 ? currentIdx + 1 : 0;
-
-                 // Check if it's already there to avoid duplicates?
-                 // If we want to allow re-playing same song, we can have duplicates.
-                 // But typically we don't want duplicates if it's the exact same ID.
-                 // Let's remove it from elsewhere if it exists to move it here.
                  const filteredQueue = prev.queue.filter(id => id !== trackId);
-
-                 // We need to re-calculate insertIdx because we might have removed something before it.
-                 // This gets complicated.
-
-                 // Simple approach: Just prepend to queue if no current track, or insert after current.
-                 if (currentIdx === -1) {
-                     // No active track in queue? Just unshift
-                     newQueue = [trackId, ...filteredQueue];
+                 
+                 // If playing same song, keep it; otherwise insert after current
+                 if (prev.currentTrackId === trackId) {
+                      newQueue = [trackId, ...filteredQueue];
                  } else {
-                     // Insert after current
-                     // We need to find the current track in the filtered queue first
-                     const newCurrentIdx = filteredQueue.indexOf(prev.currentTrackId || '');
-                     // It should be there unless currentTrackId == trackId
-                     if (newCurrentIdx === -1 && prev.currentTrackId === trackId) {
-                         // We are re-playing the current track? Just keep it.
-                         newQueue = [trackId, ...filteredQueue];
-                     } else {
-                         // Splicing
-                         const q = [...filteredQueue];
-                         q.splice(newCurrentIdx + 1, 0, trackId);
-                         newQueue = q;
-                     }
+                      const newCurrentIdx = filteredQueue.indexOf(prev.currentTrackId || '');
+                      const q = [...filteredQueue];
+                      q.splice(newCurrentIdx + 1, 0, trackId);
+                      newQueue = q;
                  }
 
-                 // Also update originalQueue to reflect this addition so un-shuffle works?
-                 // If we are in shuffle mode, we modified the shuffled queue.
-                 // We should probably also add it to originalQueue.
                  if (!prev.originalQueue.includes(trackId)) {
                      newOriginalQueue = [...prev.originalQueue, trackId];
                  }
              }
         }
 
-        // Update Media Session Metadata
+        // Update Media Session
         const track = libraryTracks[trackId];
         if (track) updateMediaSession(track);
 
@@ -220,26 +189,27 @@ export const useAudioPlayer = (
         };
       });
 
-      // Stop Crossfades if immediate
+      // 2. Handle Audio Playback
       if (immediate) {
+        // STOP everything and play strictly on Primary
         if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
         isTransitioningRef.current = false;
         nextTrackStartedRef.current = false;
 
-        // Hard switch
-        primary.src = url;
-        primary.currentTime = 0;
-        primary.volume = player.volume;
-        await primary.play();
-
-        // Stop secondary
+        // Reset Secondary
         secondary.pause();
         secondary.src = "";
+        secondary.volume = player.volume;
 
-        // No need to swap activeIdx, we keep using the current primary
+        // Play Primary
+        primary.src = url;
+        primary.currentTime = 0;
+        primary.volume = player.volume; 
+        await primary.play();
+
+        // No ActiveIdx swap needed here; we stay on current Primary
       } else {
-        // This path is for the "Next Track" pre-loading / crossfading logic
-        // We load into secondary
+        // Pre-loading path (not used in standard click, used internally for crossfade prep)
       }
 
     } catch (e) {
@@ -247,7 +217,9 @@ export const useAudioPlayer = (
     }
   }, [libraryTracks, updateMediaSession, player.volume, getAudioElements]);
 
-  // --- CROSSFADE HANDLER ---
+
+  // --- LOGIC: CROSSFADE ---
+
   const startCrossfade = useCallback(async (nextTrackId: string) => {
       if (isTransitioningRef.current || nextTrackStartedRef.current) return;
 
@@ -258,7 +230,7 @@ export const useAudioPlayer = (
       nextTrackStartedRef.current = true;
       isTransitioningRef.current = true;
 
-      // 1. Load Next Track into Secondary
+      // 1. Prepare Secondary
       const audioBlob = await dbService.getAudioBlob(nextTrackId);
       if (!audioBlob) return;
 
@@ -266,13 +238,7 @@ export const useAudioPlayer = (
       secondary.volume = 0; // Start silent
       await secondary.play();
 
-      // Update UI to show we are essentially "playing" the next track metadata-wise?
-      // Actually, we usually want to show the current song until it finishes or is dominant.
-      // But for "Now Playing" UI, it's tricky.
-      // Let's keep UI on current song until the swap happens or crossfade completes.
-      // However, usually we swap the "Current Track" info when the new song *starts* or reaches sufficient volume.
-      // Let's swap immediately visually but keep audio mixing.
-
+      // Update UI immediately
       const track = libraryTracks[nextTrackId];
       if (track) updateMediaSession(track);
       setPlayer(prev => ({ ...prev, currentTrackId: nextTrackId }));
@@ -281,7 +247,6 @@ export const useAudioPlayer = (
       const duration = player.crossfadeDuration * 1000;
       const steps = duration / FADE_INTERVAL;
       const volStep = player.volume / steps;
-
       let stepCount = 0;
 
       fadeIntervalRef.current = setInterval(() => {
@@ -295,38 +260,39 @@ export const useAudioPlayer = (
           if (stepCount >= steps) {
               // Finish Crossfade
               clearInterval(fadeIntervalRef.current);
+              
+              // Reset Old Primary
               primary.pause();
               primary.currentTime = 0;
-              primary.volume = player.volume; // Reset for reuse
+              primary.volume = player.volume; 
+              if (primary.src) URL.revokeObjectURL(primary.src);
+              primary.src = "";
 
-              // Swap Refs by toggling state
+              // Ensure New Primary is full volume
+              secondary.volume = player.volume;
+
+              // SWAP POINTERS: Secondary becomes the new Primary
               setActiveIdx(prev => prev === 0 ? 1 : 0);
 
               isTransitioningRef.current = false;
               nextTrackStartedRef.current = false;
-
-              // Cleanup
-              if (primary.src) URL.revokeObjectURL(primary.src);
-              primary.src = "";
           }
       }, FADE_INTERVAL);
   }, [getAudioElements, libraryTracks, player.crossfadeDuration, player.volume, updateMediaSession]);
+
+
+  // --- LOGIC: TIME UPDATE MONITOR ---
 
   const handleTimeUpdate = useCallback(() => {
      const { primary } = getAudioElements();
      if (!primary) return;
 
+     // One-way sync: Audio -> UI
      setCurrentTime(primary.currentTime);
 
-     // Crossfade Trigger
+     // Crossfade Trigger Logic
      const timeLeft = primary.duration - primary.currentTime;
 
-     // Only trigger if:
-     // 1. Crossfade is enabled
-     // 2. We are within the window
-     // 3. We haven't started the next track yet
-     // 4. We are playing
-     // 5. There is a next track
      if (player.crossfadeEnabled &&
          timeLeft <= player.crossfadeDuration &&
          timeLeft > 0 &&
@@ -349,6 +315,7 @@ export const useAudioPlayer = (
      }
   }, [getAudioElements, player.crossfadeEnabled, player.crossfadeDuration, player.queue, player.currentTrackId, player.repeat, startCrossfade]);
 
+
   // --- CONTROLS ---
 
   const togglePlay = useCallback(() => {
@@ -365,7 +332,16 @@ export const useAudioPlayer = (
   }, [player.isPlaying, getAudioElements]);
 
   const nextTrack = useCallback(() => {
-     // Force next track (skip crossfade wait)
+     // CRITICAL: Handle "Next" during crossfade
+     // 1. Abort any active crossfade interval
+     if (fadeIntervalRef.current) {
+         clearInterval(fadeIntervalRef.current);
+         fadeIntervalRef.current = null;
+     }
+     isTransitioningRef.current = false;
+     nextTrackStartedRef.current = false;
+
+     // 2. Determine Next Track
      const currentIndex = player.queue.indexOf(player.currentTrackId || '');
      let nextId: string | null = null;
 
@@ -375,6 +351,7 @@ export const useAudioPlayer = (
          nextId = player.queue[0];
      }
 
+     // 3. Force Immediate Play (skips fade)
      if (nextId) {
          playTrack(nextId, { immediate: true, fromQueue: true });
      }
@@ -382,11 +359,13 @@ export const useAudioPlayer = (
 
   const prevTrack = useCallback(() => {
       const { primary } = getAudioElements();
+      // "Restart Song" logic
       if (primary && primary.currentTime > 3) {
           primary.currentTime = 0;
           return;
       }
-
+      
+      // "Previous Song" logic
       const currentIndex = player.queue.indexOf(player.currentTrackId || '');
       if (currentIndex > 0) {
           playTrack(player.queue[currentIndex - 1], { immediate: true, fromQueue: true });
@@ -395,10 +374,13 @@ export const useAudioPlayer = (
       }
   }, [player.queue, player.currentTrackId, player.repeat, playTrack, getAudioElements]);
 
+  // CRITICAL FIX: Seek
   const handleSeek = useCallback((time: number) => {
       const { primary } = getAudioElements();
       if (primary) {
+          // 1. Mutate Audio (Source of Truth)
           primary.currentTime = time;
+          // 2. Update React State immediately (don't wait for timeupdate event)
           setCurrentTime(time);
       }
   }, [getAudioElements]);
@@ -419,8 +401,6 @@ export const useAudioPlayer = (
               }
           } else {
               newQueue = [...prev.originalQueue];
-              // Ensure current track is still playing and we don't lose position,
-              // but queue order is restored.
           }
 
           dbService.setSetting('shuffle', isShuffling);
@@ -431,10 +411,11 @@ export const useAudioPlayer = (
   // --- EVENT LISTENERS ---
 
   useEffect(() => {
-      const { primary, secondary } = getAudioElements();
+      const { primary } = getAudioElements();
 
       const onTimeUpdate = () => handleTimeUpdate();
       const onDurationChange = () => primary && setDuration(primary.duration);
+      
       const onEnded = () => {
            // Fallback if crossfade didn't trigger (e.g. song too short) or disabled
            if (!player.crossfadeEnabled || (player.crossfadeEnabled && !nextTrackStartedRef.current)) {
@@ -462,10 +443,10 @@ export const useAudioPlayer = (
               primary.removeEventListener('ended', onEnded);
           }
       };
-  }, [handleTimeUpdate, nextTrack, player.repeat, player.crossfadeEnabled, player.currentTrackId, activeIdx, getAudioElements]); // Re-bind when active element swaps (activeIdx)
+  }, [handleTimeUpdate, nextTrack, player.repeat, player.crossfadeEnabled, activeIdx, getAudioElements]); 
+  // ^ Re-bind listeners when 'activeIdx' swaps.
 
-
-  // --- MEDIA SESSION ---
+  // --- MEDIA SESSION INTEGRATION ---
   useEffect(() => {
       if ('mediaSession' in navigator) {
           navigator.mediaSession.setActionHandler('play', togglePlay);
