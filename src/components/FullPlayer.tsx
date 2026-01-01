@@ -97,14 +97,27 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
     setIsScrubbing(true);
   };
 
-  const handlePointerUp = () => {
-     setIsScrubbing(false);
-     const syntheticEvent = {
-        target: { value: scrubValue.toString() },
-        currentTarget: { value: scrubValue.toString() }
-    } as unknown as React.ChangeEvent<HTMLInputElement>;
-    handleSeek(syntheticEvent);
-  };
+  // Add global pointer up listener when scrubbing
+  useEffect(() => {
+    if (isScrubbing) {
+      const handleGlobalPointerUp = () => {
+        setIsScrubbing(false);
+        const syntheticEvent = {
+          target: { value: scrubValue.toString() },
+          currentTarget: { value: scrubValue.toString() }
+        } as unknown as React.ChangeEvent<HTMLInputElement>;
+        handleSeek(syntheticEvent);
+      };
+
+      window.addEventListener('pointerup', handleGlobalPointerUp);
+      window.addEventListener('pointercancel', handleGlobalPointerUp);
+
+      return () => {
+        window.removeEventListener('pointerup', handleGlobalPointerUp);
+        window.removeEventListener('pointercancel', handleGlobalPointerUp);
+      };
+    }
+  }, [isScrubbing, scrubValue, handleSeek]);
 
   return (
     <AnimatePresence>
@@ -225,7 +238,6 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                     value={scrubValue}
                     onChange={handleScrubChange}
                     onPointerDown={handlePointerDown}
-                    onPointerUp={handlePointerUp}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     style={{ touchAction: 'none' }} 
                   />
