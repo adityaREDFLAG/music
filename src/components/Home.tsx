@@ -1,6 +1,6 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Play, Sparkles } from 'lucide-react';
+import { Music, Play, Sparkles, Shuffle } from 'lucide-react';
 import { Track } from '../types';
 
 interface HomeProps {
@@ -36,19 +36,19 @@ const cardVariants = {
 // --- SKELETON LOADER ---
 const SkeletonCard = () => (
   <div className="flex flex-col gap-4">
-    <div className="aspect-square rounded-[24px] bg-surface-container-highest/40 relative overflow-hidden isolate">
+    <div className="aspect-square rounded-[24px] bg-zinc-800/50 relative overflow-hidden isolate">
       {/* Watermark */}
-      <div className="absolute inset-0 flex items-center justify-center z-0 opacity-20">
-        <span className="text-on-surface-variant font-black text-xl tracking-[0.2em] -rotate-12 select-none blur-[1px]">
-          imreallyadi
+      <div className="absolute inset-0 flex items-center justify-center z-0 opacity-10">
+        <span className="text-white font-black text-xl tracking-[0.2em] -rotate-12 select-none blur-[1px]">
+          LOADING
         </span>
       </div>
       {/* Shimmer */}
-      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-surface-on/10 to-transparent animate-[shimmer_1.5s_infinite] z-10" />
+      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[shimmer_1.5s_infinite] z-10" />
     </div>
     <div className="space-y-2 px-1">
-      <div className="h-5 w-3/4 bg-surface-container-highest/60 rounded-full animate-pulse" />
-      <div className="h-4 w-1/2 bg-surface-container-highest/40 rounded-full animate-pulse" />
+      <div className="h-5 w-3/4 bg-zinc-800/50 rounded-full animate-pulse" />
+      <div className="h-4 w-1/2 bg-zinc-800/30 rounded-full animate-pulse" />
     </div>
   </div>
 );
@@ -63,7 +63,7 @@ const TrackCard = memo(({ track, onPlay }: { track: Track; onPlay: (id: string) 
     onClick={() => onPlay(track.id)}
   >
     {/* Image Container */}
-    <div className="aspect-square rounded-[24px] bg-surface-container-high overflow-hidden relative shadow-sm transition-shadow duration-500 group-hover:shadow-lg">
+    <div className="aspect-square rounded-[24px] bg-zinc-900 overflow-hidden relative shadow-md transition-all duration-500 group-hover:shadow-xl group-hover:shadow-black/40 ring-1 ring-white/5">
       {track.coverArt ? (
         <motion.img 
           src={track.coverArt} 
@@ -77,38 +77,38 @@ const TrackCard = memo(({ track, onPlay }: { track: Track; onPlay: (id: string) 
           loading="lazy"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-surface-container-high">
-          <Music className="w-16 h-16 text-primary/40" />
+        <div className="w-full h-full flex items-center justify-center bg-zinc-900">
+          <Music className="w-16 h-16 text-zinc-700" />
         </div>
       )}
       
-      {/* Play Overlay (M3 Expressive FAB style) */}
+      {/* Play Overlay */}
       <motion.div 
         initial={{ opacity: 0 }}
         variants={{
           hover: { opacity: 1 },
           tap: { opacity: 1 }
         }}
-        className="absolute inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center"
+        className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center"
       >
         <motion.div
           variants={{
             hover: { scale: 1, y: 0 },
             hidden: { scale: 0.5, y: 10 }
           }}
-          className="w-14 h-14 bg-primary-container text-on-primary-container rounded-[18px] flex items-center justify-center shadow-elevation-3"
+          className="w-14 h-14 bg-white text-black rounded-full flex items-center justify-center shadow-lg transform transition-transform"
         >
           <Play className="w-6 h-6 fill-current ml-1" />
         </motion.div>
       </motion.div>
     </div>
 
-    {/* Text Content */}
-    <div className="px-1 flex flex-col">
-      <h3 className="text-title-medium font-semibold text-on-surface truncate tracking-tight">
+    {/* Text Content - High Contrast */}
+    <div className="px-1 flex flex-col gap-0.5">
+      <h3 className="text-base font-bold text-white truncate tracking-tight">
         {track.title}
       </h3>
-      <p className="text-body-medium text-on-surface-variant truncate opacity-80 group-hover:opacity-100 transition-opacity">
+      <p className="text-sm text-zinc-400 font-medium truncate group-hover:text-white transition-colors">
         {track.artist}
       </p>
     </div>
@@ -119,6 +119,23 @@ TrackCard.displayName = 'TrackCard';
 
 // --- MAIN COMPONENT ---
 const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoading = false }) => {
+  
+  // 1. Randomize tracks for display so it feels like a "Mix"
+  const randomMix = useMemo(() => {
+    if (isLoading || !filteredTracks.length) return [];
+    return [...filteredTracks]
+      .sort(() => 0.5 - Math.random()) // Simple shuffle
+      .slice(0, 20); // Limit to 20 items
+  }, [filteredTracks, isLoading]);
+
+  // 2. Handler for Shuffle Play button
+  const handleShufflePlay = () => {
+    if (randomMix.length > 0) {
+      const randomIndex = Math.floor(Math.random() * randomMix.length);
+      playTrack(randomMix[randomIndex].id);
+    }
+  };
+
   if (activeTab !== 'home') return null;
 
   return (
@@ -127,38 +144,52 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="w-full h-full overflow-y-auto pt-8 pb-32 px-6 scrollbar-hide"
+      className="w-full h-full overflow-y-auto pt-8 pb-32 px-6 scrollbar-hide safe-area-bottom"
     >
       {/* Expressive Header */}
       <div className="max-w-7xl mx-auto space-y-8">
         <header className="flex flex-col md:flex-row justify-between md:items-end gap-6">
-          <div className="space-y-1">
+          <div className="space-y-2">
             <motion.div 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary-container/50 text-on-secondary-container text-label-medium font-medium mb-2"
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-wider mb-2"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>Recommended</span>
+              <Sparkles className="w-3 h-3" />
+              <span>Discovery Mix</span>
             </motion.div>
-            <h2 className="text-headline-large font-bold text-on-surface tracking-tight">
-              Recent Heat
+            <h2 className="text-4xl md:text-5xl font-bold text-white tracking-tight">
+              Fresh Picks
             </h2>
-            <p className="text-body-large text-on-surface-variant max-w-md">
-              Fresh tracks added to your library.
+            <p className="text-lg text-zinc-400 max-w-md font-medium">
+              A randomized selection from your library, served fresh.
             </p>
           </div>
           
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.96 }}
-            onClick={() => filteredTracks[0] && playTrack(filteredTracks[0].id)}
-            disabled={isLoading || filteredTracks.length === 0}
-            className="h-14 px-8 rounded-full bg-primary text-on-primary text-title-medium font-medium shadow-elevation-2 hover:shadow-elevation-4 active:shadow-elevation-1 transition-all flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Play className="w-5 h-5 fill-current" />
-            Play All
-          </motion.button>
+          <div className="flex gap-3">
+             {/* New Shuffle Button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleShufflePlay}
+              disabled={isLoading || filteredTracks.length === 0}
+              className="h-12 px-6 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-semibold transition-colors flex items-center gap-2"
+            >
+              <Shuffle className="w-5 h-5" />
+              <span>Shuffle</span>
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => randomMix[0] && playTrack(randomMix[0].id)}
+              disabled={isLoading || filteredTracks.length === 0}
+              className="h-12 px-8 rounded-full bg-white text-black font-bold shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Play className="w-5 h-5 fill-current" />
+              <span>Play Mix</span>
+            </motion.button>
+          </div>
         </header>
 
         {/* Content Grid */}
@@ -174,7 +205,7 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
             ))
           ) : (
             <AnimatePresence mode="popLayout">
-              {filteredTracks.slice(0, 15).map((track) => (
+              {randomMix.map((track) => (
                 <TrackCard 
                   key={track.id} 
                   track={track} 
@@ -189,12 +220,13 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center justify-center py-20 text-on-surface-variant/60"
+            className="flex flex-col items-center justify-center py-20 text-zinc-500"
           >
-            <div className="w-24 h-24 rounded-[32px] bg-surface-container-high flex items-center justify-center mb-4">
+            <div className="w-24 h-24 rounded-[32px] bg-zinc-900 flex items-center justify-center mb-4">
               <Music className="w-10 h-10 opacity-50" />
             </div>
-            <p className="text-title-large font-medium">No tracks found</p>
+            <p className="text-xl font-medium text-white">No tracks found</p>
+            <p className="text-sm mt-2">Try importing some music to get started.</p>
           </motion.div>
         )}
       </div>
