@@ -10,6 +10,7 @@ interface QueueListProps {
   onReorder: (newQueue: string[]) => void;
   onPlay: (trackId: string) => void;
   onRemove: (trackId: string) => void;
+  onClose?: () => void;
 }
 
 const QueueItem = ({ track, isCurrent, onPlay, onRemove }: { track: Track; isCurrent: boolean; onPlay: () => void; onRemove: () => void }) => {
@@ -61,10 +62,18 @@ const QueueItem = ({ track, isCurrent, onPlay, onRemove }: { track: Track; isCur
   );
 };
 
-const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, onReorder, onPlay, onRemove }) => {
+const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, onReorder, onPlay, onRemove, onClose }) => {
   if (!queue || queue.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-white/30">
+        <div className="flex w-full justify-between items-center px-4 mb-4 absolute top-4">
+          <h3 className="text-lg font-bold text-white">Queue</h3>
+          {onClose && (
+            <button onClick={onClose} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors">
+              <X size={20} className="text-white" />
+            </button>
+          )}
+        </div>
         <p>Queue is empty</p>
       </div>
     );
@@ -72,7 +81,14 @@ const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, on
 
   return (
     <div className="h-full flex flex-col">
-      <h3 className="text-lg font-bold text-white mb-4 px-2">Up Next</h3>
+      <div className="flex items-center justify-between mb-4 px-2">
+        <h3 className="text-lg font-bold text-white">Up Next</h3>
+        {onClose && (
+            <button onClick={onClose} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors">
+              <X size={20} className="text-white" />
+            </button>
+        )}
+      </div>
       <Reorder.Group
         axis="y"
         values={queue}

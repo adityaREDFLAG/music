@@ -229,12 +229,13 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                     onReorder={(newQueue) => setPlayerState(prev => ({ ...prev, queue: newQueue }))}
                     onPlay={(id) => playTrack(id, { fromQueue: true })}
                     onRemove={onRemoveTrack}
+                    onClose={() => setShowQueue(false)}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
 
-            <div className={`flex flex-col justify-center w-full md:w-1/2 md:max-w-md ${showQueue ? 'md:hidden' : ''} md:flex`}>
+            <div className="flex flex-col justify-center w-full md:w-1/2 md:max-w-md md:flex">
                <div className="hidden md:block mb-8">
                   <h1 className="text-4xl font-bold text-white truncate">{currentTrack.title}</h1>
                   <p className="text-2xl text-white/50 truncate mt-2">{currentTrack.artist}</p>
