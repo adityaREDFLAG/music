@@ -24,21 +24,31 @@ export const useAudioPlayer = (
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  // Track which audio element is primary (0 or 1)
+  // We use state to force re-render when the primary element swaps, ensuring listeners are re-bound.
+  const [activeIdx, setActiveIdx] = useState(0);
+
   // Refs for Audio Elements (Double Buffer)
   const audio1Ref = useRef<HTMLAudioElement | null>(null);
   const audio2Ref = useRef<HTMLAudioElement | null>(null);
-  const activeAudioRef = useRef<HTMLAudioElement | null>(null); // Points to currently dominant audio
   const fadeIntervalRef = useRef<any>(null);
   const nextTrackStartedRef = useRef<boolean>(false); // Prevent multiple triggers
   const isTransitioningRef = useRef<boolean>(false);
 
   // Helper: Get Audio Elements
-  const getAudioElements = () => {
-    return {
-      primary: activeAudioRef.current === audio1Ref.current ? audio1Ref.current : audio2Ref.current,
-      secondary: activeAudioRef.current === audio1Ref.current ? audio2Ref.current : audio1Ref.current
-    };
-  };
+  const getAudioElements = useCallback(() => {
+    if (activeIdx === 0) {
+      return {
+        primary: audio1Ref.current,
+        secondary: audio2Ref.current
+      };
+    } else {
+      return {
+        primary: audio2Ref.current,
+        secondary: audio1Ref.current
+      };
+    }
+  }, [activeIdx]);
 
   // Helper: Persist State
   const saveState = useCallback((state: PlayerState) => {
@@ -54,7 +64,7 @@ export const useAudioPlayer = (
     };
     audio1Ref.current = initAudio();
     audio2Ref.current = initAudio();
-    activeAudioRef.current = audio1Ref.current;
+    // activeIdx defaults to 0, so audio1 is primary initially.
 
     // Load saved state
     dbService.getSetting<PlayerState>('playerState').then(saved => {
@@ -226,8 +236,7 @@ export const useAudioPlayer = (
         secondary.pause();
         secondary.src = "";
 
-        // Reset state refs
-        activeAudioRef.current = primary;
+        // No need to swap activeIdx, we keep using the current primary
       } else {
         // This path is for the "Next Track" pre-loading / crossfading logic
         // We load into secondary
@@ -236,47 +245,10 @@ export const useAudioPlayer = (
     } catch (e) {
       console.error("Playback error", e);
     }
-  }, [libraryTracks, updateMediaSession, player.volume]); // Dependencies might be stale for player.volume if not careful, but we use ref for audio volume
+  }, [libraryTracks, updateMediaSession, player.volume, getAudioElements]);
 
   // --- CROSSFADE HANDLER ---
-  const handleTimeUpdate = useCallback(() => {
-     const { primary, secondary } = getAudioElements();
-     if (!primary) return;
-
-     setCurrentTime(primary.currentTime);
-
-     // Crossfade Trigger
-     const timeLeft = primary.duration - primary.currentTime;
-
-     // Only trigger if:
-     // 1. Crossfade is enabled
-     // 2. We are within the window
-     // 3. We haven't started the next track yet
-     // 4. We are playing
-     // 5. There is a next track
-     if (player.crossfadeEnabled &&
-         timeLeft <= player.crossfadeDuration &&
-         timeLeft > 0 &&
-         !nextTrackStartedRef.current &&
-         !isTransitioningRef.current &&
-         !primary.paused) {
-
-         const currentIndex = player.queue.indexOf(player.currentTrackId || '');
-         let nextTrackId: string | null = null;
-
-         if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
-             nextTrackId = player.queue[currentIndex + 1];
-         } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
-             nextTrackId = player.queue[0];
-         }
-
-         if (nextTrackId) {
-             startCrossfade(nextTrackId);
-         }
-     }
-  }, [player.crossfadeEnabled, player.crossfadeDuration, player.queue, player.currentTrackId, player.repeat]);
-
-  const startCrossfade = async (nextTrackId: string) => {
+  const startCrossfade = useCallback(async (nextTrackId: string) => {
       if (isTransitioningRef.current || nextTrackStartedRef.current) return;
 
       const { primary, secondary } = getAudioElements();
@@ -327,8 +299,8 @@ export const useAudioPlayer = (
               primary.currentTime = 0;
               primary.volume = player.volume; // Reset for reuse
 
-              // Swap Refs
-              activeAudioRef.current = secondary;
+              // Swap Refs by toggling state
+              setActiveIdx(prev => prev === 0 ? 1 : 0);
 
               isTransitioningRef.current = false;
               nextTrackStartedRef.current = false;
@@ -338,7 +310,44 @@ export const useAudioPlayer = (
               primary.src = "";
           }
       }, FADE_INTERVAL);
-  };
+  }, [getAudioElements, libraryTracks, player.crossfadeDuration, player.volume, updateMediaSession]);
+
+  const handleTimeUpdate = useCallback(() => {
+     const { primary } = getAudioElements();
+     if (!primary) return;
+
+     setCurrentTime(primary.currentTime);
+
+     // Crossfade Trigger
+     const timeLeft = primary.duration - primary.currentTime;
+
+     // Only trigger if:
+     // 1. Crossfade is enabled
+     // 2. We are within the window
+     // 3. We haven't started the next track yet
+     // 4. We are playing
+     // 5. There is a next track
+     if (player.crossfadeEnabled &&
+         timeLeft <= player.crossfadeDuration &&
+         timeLeft > 0 &&
+         !nextTrackStartedRef.current &&
+         !isTransitioningRef.current &&
+         !primary.paused) {
+
+         const currentIndex = player.queue.indexOf(player.currentTrackId || '');
+         let nextTrackId: string | null = null;
+
+         if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
+             nextTrackId = player.queue[currentIndex + 1];
+         } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
+             nextTrackId = player.queue[0];
+         }
+
+         if (nextTrackId) {
+             startCrossfade(nextTrackId);
+         }
+     }
+  }, [getAudioElements, player.crossfadeEnabled, player.crossfadeDuration, player.queue, player.currentTrackId, player.repeat, startCrossfade]);
 
   // --- CONTROLS ---
 
@@ -353,7 +362,7 @@ export const useAudioPlayer = (
         primary.play().catch(console.error);
         setPlayer(p => ({ ...p, isPlaying: true }));
     }
-  }, [player.isPlaying]);
+  }, [player.isPlaying, getAudioElements]);
 
   const nextTrack = useCallback(() => {
      // Force next track (skip crossfade wait)
@@ -384,7 +393,7 @@ export const useAudioPlayer = (
       } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
           playTrack(player.queue[player.queue.length - 1], { immediate: true, fromQueue: true });
       }
-  }, [player.queue, player.currentTrackId, player.repeat, playTrack]);
+  }, [player.queue, player.currentTrackId, player.repeat, playTrack, getAudioElements]);
 
   const handleSeek = useCallback((time: number) => {
       const { primary } = getAudioElements();
@@ -392,7 +401,7 @@ export const useAudioPlayer = (
           primary.currentTime = time;
           setCurrentTime(time);
       }
-  }, []);
+  }, [getAudioElements]);
 
   const toggleShuffle = useCallback(() => {
       setPlayer(prev => {
@@ -453,7 +462,7 @@ export const useAudioPlayer = (
               primary.removeEventListener('ended', onEnded);
           }
       };
-  }, [handleTimeUpdate, nextTrack, player.repeat, player.crossfadeEnabled, player.currentTrackId]); // Re-bind when active element swaps or state changes relevant to events
+  }, [handleTimeUpdate, nextTrack, player.repeat, player.crossfadeEnabled, player.currentTrackId, activeIdx, getAudioElements]); // Re-bind when active element swaps (activeIdx)
 
 
   // --- MEDIA SESSION ---
