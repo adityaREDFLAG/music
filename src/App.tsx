@@ -26,7 +26,7 @@ function MusicApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [library, setLibrary] = useState<LibraryState>({ tracks: {}, playlists: {} });
-  const [themeColor, setThemeColor] = useState('#6750A4'); // Default primary color
+  const [themeColor, setThemeColor] = useState('#FF7A29'); // Default primary color
   const [loading, setLoading] = useState<{ active: boolean, progress: number, message: string }>({ active: false, progress: 0, message: '' });
 
   const refreshLibrary = useCallback(async () => {
@@ -190,9 +190,12 @@ function MusicApp() {
       <div className="fixed inset-0 -z-10 opacity-[0.05]" style={{ background: `radial-gradient(circle at 50% 0%, ${themeColor}, transparent 70%)` }} />
 
       <header className="px-6 pt-12 pb-4 flex justify-between items-center bg-surface/80 backdrop-blur-md flex-shrink-0 z-10 sticky top-0">
-        <motion.div initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
-            <h1 className="text-display-small text-surface-on">
-            {activeTab === 'home' ? metadata.name.split(' - ')[0] : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+        <motion.div initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex items-center gap-4">
+          {activeTab === 'home' && (
+            <img src="/logo.png" alt="Vibe Logo" className="w-12 h-12 rounded-full shadow-elevation-1" />
+          )}
+          <h1 className="text-display-small text-surface-on">
+            {activeTab === 'home' ? 'Vibe Music' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
           </h1>
         </motion.div>
 

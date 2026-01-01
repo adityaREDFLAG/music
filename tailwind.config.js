@@ -8,16 +8,16 @@ export default {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#A8C7FA',
-          container: '#004A77',
-          on: '#002E4E',
-          'on-container': '#C2E7FF',
+          DEFAULT: '#FF7A29',
+          container: '#782F00',
+          on: '#FFFFFF',
+          'on-container': '#FFDCC2',
         },
         secondary: {
-          DEFAULT: '#C2E7FF',
-          container: '#004A77',
-          on: '#001D35',
-          'on-container': '#C2E7FF',
+          DEFAULT: '#E6C08D',
+          container: '#5C4018',
+          on: '#261900',
+          'on-container': '#FFDCC2',
         },
         tertiary: {
           DEFAULT: '#D7C3FA',
