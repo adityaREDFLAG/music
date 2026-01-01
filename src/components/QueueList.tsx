@@ -1,122 +1,221 @@
-import React from 'react';
-import { motion, Reorder, AnimatePresence, useMotionValue, useTransform } from 'framer-motion';
-import { Track } from '../types';
-import { Music, GripVertical, Volume2, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence, useMotionValue, useTransform, useDragControls } from 'framer-motion';
+import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, ListMusic } from 'lucide-react';
+import { Track, PlayerState } from '../types';
+import QueueList from './QueueList';
+import { dbService } from '../db';
 
-interface QueueListProps {
-  queue: string[];
-  currentTrackId: string | null;
-  tracks: Record<string, Track>;
-  onReorder: (newQueue: string[]) => void;
-  onPlay: (trackId: string) => void;
-  onRemove?: (trackId: string) => void; // New prop for removal logic
+interface FullPlayerProps {
+  currentTrack: Track | null;
+  playerState: PlayerState;
+  isPlayerOpen: boolean;
+  onClose: () => void;
+  togglePlay: () => void;
+  nextTrack: () => void;
+  prevTrack: () => void;
+  setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
+  currentTime: number;
+  duration: number;
+  handleSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  toggleShuffle?: () => void;
+  onRemoveTrack?: (trackId: string) => void;
 }
 
-const QueueItem = ({ trackId, track, isCurrent, onPlay, onRemove }: any) => {
-  const x = useMotionValue(0);
-  // Maps the drag distance to an opacity for the background delete icon
-  const iconOpacity = useTransform(x, [-100, -50, 0], [1, 0.5, 0]);
-  const backgroundColor = useTransform(x, [-100, 0], ['#ef4444', 'rgba(255,255,255,0)']);
+const formatTime = (time: number): string => {
+  if (!time || isNaN(time)) return "0:00";
+  const mins = Math.floor(time / 60);
+  const secs = Math.floor(time % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
 
-  const handleDragEnd = (_: any, info: any) => {
-    // If dragged more than 100px to the left, trigger removal
-    if (info.offset.x < -100 && onRemove) {
-      onRemove(trackId);
+const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
+  currentTrack, playerState, isPlayerOpen, onClose,
+  togglePlay, nextTrack, prevTrack, currentTime, 
+  duration
+}) => {
+  const [showQueue, setShowQueue] = useState(false);
+  const [tracks, setTracks] = useState<Record<string, Track>>({});
+  const [isLargeScreen, setIsLargeScreen] = useState(window.innerWidth >= 768);
+
+  const dragControls = useDragControls();
+  const dragY = useMotionValue(0);
+  const opacity = useTransform(dragY, [0, 200], [1, 0]);
+
+  useEffect(() => {
+    const handleResize = () => setIsLargeScreen(window.innerWidth >= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const loadTracks = async () => {
+      try {
+        const allTracks = await dbService.getAllTracks();
+        const trackMap = allTracks.reduce((acc, track) => {
+          acc[track.id] = track;
+          return acc;
+        }, {} as Record<string, Track>);
+        setTracks(trackMap);
+      } catch (err) {
+        console.error("Failed to load tracks for queue", err);
+      }
+    };
+    if (isPlayerOpen) loadTracks();
+  }, [isPlayerOpen]);
+
+  // Media Session API: Disable seeking on lockscreen
+  useEffect(() => {
+    if ('mediaSession' in navigator && currentTrack) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        artwork: [{ src: currentTrack.coverArt || '', sizes: '512x512', type: 'image/png' }]
+      });
+
+      navigator.mediaSession.setActionHandler('play', togglePlay);
+      navigator.mediaSession.setActionHandler('pause', togglePlay);
+      navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
+      navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
+
+      // Disable seeking
+      navigator.mediaSession.setActionHandler('seekto', null);
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
     }
-  };
+  }, [currentTrack, togglePlay, prevTrack, nextTrack]);
 
-  if (!track) return null;
+  if (!currentTrack) return null;
 
   return (
-    <Reorder.Item
-      value={trackId}
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, x: -100 }}
-      whileDrag={{ scale: 1.03, zIndex: 50 }}
-      className="relative overflow-hidden rounded-2xl mb-2"
-    >
-      {/* Background Delete Layer */}
-      <motion.div 
-        style={{ backgroundColor }}
-        className="absolute inset-0 flex items-center justify-end px-6 rounded-2xl"
-      >
-        <motion.div style={{ opacity: iconOpacity }}>
-          <Trash2 size={20} className="text-white" />
-        </motion.div>
-      </motion.div>
-
-      {/* Foreground Content */}
-      <motion.div
-        drag="x"
-        dragConstraints={{ left: -120, right: 0 }}
-        dragElastic={0.1}
-        onDragEnd={handleDragEnd}
-        style={{ x }}
-        className={`relative flex items-center gap-3 p-3 rounded-2xl bg-surface/90 backdrop-blur-md border border-white/5 transition-colors ${
-          isCurrent ? 'bg-white/10' : 'hover:bg-white/5'
-        }`}
-      >
-        <div onClick={() => onPlay(trackId)} className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer">
-          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/5">
-            {track.coverArt ? (
-              <img src={track.coverArt} className="w-full h-full object-cover" alt="" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center"><Music className="w-5 h-5 text-white/20" /></div>
-            )}
-            {isCurrent && (
-              <div className="absolute inset-0 bg-primary/40 flex items-center justify-center">
-                <Volume2 size={18} className="text-white animate-pulse" />
-              </div>
-            )}
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <p className={`text-[15px] font-bold truncate ${isCurrent ? 'text-primary' : 'text-white'}`}>
-              {track.title}
-            </p>
-            <p className="text-[13px] text-white/50 truncate font-medium">{track.artist}</p>
-          </div>
-        </div>
-
-        {/* Drag Handle for Reordering */}
-        <div className="cursor-grab active:cursor-grabbing p-2 text-white/20 group-hover:text-white/60">
-          <GripVertical size={20} />
-        </div>
-      </motion.div>
-    </Reorder.Item>
-  );
-};
-
-const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, onReorder, onPlay, onRemove }) => {
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="pt-6 pb-2 px-6 sticky top-0 z-20">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-white/40">Up Next</h3>
-      </div>
-
-      <Reorder.Group
-        axis="y"
-        values={queue}
-        onReorder={onReorder}
-        className="flex-1 overflow-y-auto px-4 pb-24 scrollbar-hide touch-pan-y"
-      >
-        <AnimatePresence mode="popLayout">
-          {queue.map((trackId) => (
-            <QueueItem
-              key={trackId}
-              trackId={trackId}
-              track={tracks[trackId]}
-              isCurrent={trackId === currentTrackId}
-              onPlay={onPlay}
-              onRemove={onRemove}
+    <AnimatePresence>
+      {isPlayerOpen && (
+        <motion.div
+          key="full-player"
+          initial={{ y: '100%' }}
+          animate={{ y: 0 }}
+          exit={{ y: '100%' }}
+          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+          drag="y"
+          dragControls={dragControls}
+          dragListener={!showQueue}
+          dragConstraints={{ top: 0, bottom: 0 }}
+          dragElastic={0.1}
+          onDragEnd={(_, info) => { if (info.offset.y > 150) onClose(); }}
+          style={{ y: dragY, opacity }}
+          className="fixed inset-0 z-[100] flex flex-col bg-black overflow-hidden"
+        >
+          <div className="absolute inset-0 z-0 pointer-events-none">
+            <motion.img 
+              src={currentTrack.coverArt} 
+              className="w-full h-full object-cover blur-[100px] opacity-40 scale-125"
             />
-          ))}
-        </AnimatePresence>
-      </Reorder.Group>
-    </div>
-  );
-};
+          </div>
 
-export default QueueList;
+          <div
+            className="relative z-10 flex flex-col items-center pt-2 pb-4 cursor-grab active:cursor-grabbing"
+            onPointerDown={(e) => dragControls.start(e)}
+          >
+            <button onClick={onClose} className="w-full h-10 flex items-center justify-center">
+              <div className="w-12 h-1.5 rounded-full bg-white/20" />
+            </button>
+          </div>
+
+          <main className="relative z-10 flex-1 flex flex-col md:flex-row md:items-center md:gap-12 md:px-12 px-6 max-w-7xl mx-auto w-full min-h-0 pb-8">
+            
+            {/* Artwork Section */}
+            <AnimatePresence mode="wait">
+              {(!showQueue || isLargeScreen) && (
+                 <motion.div
+                   key="art"
+                   initial={{ opacity: 0, scale: 0.9 }}
+                   animate={{ opacity: 1, scale: 1 }}
+                   exit={{ opacity: 0, scale: 0.9 }}
+                   className={`flex-1 flex flex-col justify-center ${showQueue ? 'hidden md:flex' : ''}`}
+                 >
+                   <div className="aspect-square w-full max-w-md mx-auto rounded-[2.5rem] overflow-hidden shadow-2xl">
+                     <img src={currentTrack.coverArt} className="w-full h-full object-cover" alt="Cover" />
+                   </div>
+                   <div className="mt-8 md:hidden">
+                     <h1 className="text-3xl font-bold text-white truncate">{currentTrack.title}</h1>
+                     <p className="text-xl text-white/50 truncate">{currentTrack.artist}</p>
+                   </div>
+                 </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Queue View - Updated with min-h-0 to enable scroll */}
+            <AnimatePresence mode="wait">
+              {showQueue && (
+                <motion.div 
+                  key="queue" 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="flex-1 min-h-0 overflow-hidden bg-white/5 rounded-3xl md:order-last w-full"
+                >
+                  <QueueList 
+                    queue={playerState.queue} 
+                    currentTrackId={currentTrack.id} 
+                    tracks={tracks} 
+                    onReorder={(newQueue) => setPlayerState(prev => ({ ...prev, queue: newQueue }))} 
+                    onPlay={() => {}}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className={`flex flex-col justify-center w-full md:w-1/2 md:max-w-md ${showQueue ? 'mt-4 md:mt-0' : 'mt-0'}`}>
+               <div className="hidden md:block mb-8">
+                  <h1 className="text-4xl font-bold text-white truncate">{currentTrack.title}</h1>
+                  <p className="text-2xl text-white/50 truncate mt-2">{currentTrack.artist}</p>
+               </div>
+
+              <div className="pb-4">
+                <div className="relative w-full h-1.5 bg-white/10 rounded-full mb-8">
+                  <div
+                    className="absolute h-full bg-white rounded-full z-0"
+                    style={{ width: `${(currentTime / duration) * 100}%` }}
+                  />
+                  {/* Seeking disabled in UI */}
+                  <input
+                    type="range"
+                    value={currentTime}
+                    readOnly
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-default pointer-events-none"
+                  />
+                  <div className="flex justify-between mt-4 text-xs text-white/40 font-mono">
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Shuffle size={20} className="text-white/40 cursor-pointer" />
+                  <div className="flex items-center gap-8">
+                    <SkipBack size={32} fill="white" className="cursor-pointer" onClick={prevTrack} />
+                    <button onClick={togglePlay} className="w-20 h-20 bg-white rounded-full flex items-center justify-center">
+                      {playerState.isPlaying ? <Pause size={32} fill="black" /> : <Play size={32} fill="black" className="ml-1" />}
+                    </button>
+                    <SkipForward size={32} fill="white" className="cursor-pointer" onClick={nextTrack} />
+                  </div>
+                  <Repeat size={20} className="text-white/40 cursor-pointer" />
+                </div>
+
+                <div className="flex justify-center mt-6">
+                  <button
+                    onClick={() => setShowQueue(!showQueue)}
+                    className={`p-3 rounded-full transition-colors ${showQueue ? 'bg-white/20 text-white' : 'text-white/40'}`}
+                  >
+                    <ListMusic size={24} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </main>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+});
+
+export default FullPlayer;
