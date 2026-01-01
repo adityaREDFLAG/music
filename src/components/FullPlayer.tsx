@@ -19,6 +19,7 @@ interface FullPlayerProps {
   handleSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
   themeColor?: string;
   toggleShuffle?: () => void;
+  onRemoveTrack?: (trackId: string) => void;
 }
 
 const formatTime = (time: number): string => {
@@ -73,7 +74,8 @@ const ProgressBar = ({ current, total, onSeek, isScrubbing, setIsScrubbing }: an
 const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
   currentTrack, playerState, isPlayerOpen, onClose,
   togglePlay, nextTrack, prevTrack, setPlayerState,
-  currentTime, duration, handleSeek, toggleShuffle
+  currentTime, duration, handleSeek, toggleShuffle,
+  onRemoveTrack
 }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [tracks, setTracks] = useState<Record<string, Track>>({});
@@ -128,7 +130,13 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
 
           {/* Header/Grabber */}
           <div className="relative z-10 flex flex-col items-center pt-2 pb-6">
-            <button onClick={onClose} className="w-12 h-1.5 rounded-full bg-white/20 mb-6 hover:bg-white/40 transition-colors" aria-label="Close player" />
+            <button
+              onClick={onClose}
+              className="w-full h-8 flex items-center justify-center mb-4 cursor-pointer"
+              aria-label="Close player"
+            >
+              <div className="w-12 h-1.5 rounded-full bg-white/20 hover:bg-white/40 transition-colors" />
+            </button>
             <div className="w-full px-8 flex justify-between items-center">
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">Playing from Library</span>
                 <button 
@@ -155,6 +163,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                     tracks={tracks}
                     onReorder={(newQueue) => setPlayerState(p => ({ ...p, queue: newQueue }))}
                     onPlay={(id) => setPlayerState(p => ({ ...p, currentTrackId: id, isPlaying: true }))}
+                    onRemove={onRemoveTrack}
                   />
                 </motion.div>
               ) : (

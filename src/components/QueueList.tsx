@@ -25,6 +25,8 @@ const QueueItem = ({ trackId, track, isCurrent, onPlay, onRemove }: any) => {
     }
   };
 
+  if (!track) return null;
+
   return (
     <Reorder.Item
       value={trackId}

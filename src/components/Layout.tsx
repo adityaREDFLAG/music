@@ -10,6 +10,7 @@ interface LayoutProps {
   setActiveTab: (tab: string) => void;
   currentTrack?: Track | null;
   className?: string;
+  isVisible?: boolean;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -17,7 +18,8 @@ export const Layout: React.FC<LayoutProps> = ({
   activeTab,
   setActiveTab,
   currentTrack,
-  className = ""
+  className = "",
+  isVisible = true
 }) => {
   return (
     <div className={`flex flex-col h-screen w-full bg-background text-on-background overflow-hidden relative ${className}`}>
@@ -29,7 +31,7 @@ export const Layout: React.FC<LayoutProps> = ({
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-30">
-         <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+         <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} isVisible={isVisible} />
       </div>
     </div>
   );
