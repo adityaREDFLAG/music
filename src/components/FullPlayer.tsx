@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, useDragControls } from 'framer-motion';
 import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, ListMusic } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
@@ -39,9 +39,9 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
   const [isLargeScreen, setIsLargeScreen] = useState(window.innerWidth >= 768);
 
-  // -- NEW: Local state for smooth seeking --
-  const [isDragging, setIsDragging] = useState(false);
-  const [localSeekValue, setLocalSeekValue] = useState(0);
+  // Local state for smooth seeking
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubValue, setScrubValue] = useState(0);
 
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
@@ -53,12 +53,12 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Sync local seek value with actual time ONLY when not dragging
+  // Sync scrubValue with actual time ONLY when NOT scrubbing
   useEffect(() => {
-    if (!isDragging) {
-      setLocalSeekValue(currentTime);
+    if (!isScrubbing) {
+      setScrubValue(currentTime);
     }
-  }, [currentTime, isDragging]);
+  }, [currentTime, isScrubbing]);
 
   useEffect(() => {
     const loadTracks = async () => {
@@ -87,20 +87,32 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
       dbService.setSetting('repeat', nextMode);
   };
 
-  // -- NEW: Seek Handlers --
-  const onSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setIsDragging(true);
-    setLocalSeekValue(parseFloat(e.target.value));
+  // -- HANDLERS --
+  
+  // 1. Slider Logic
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setScrubValue(parseFloat(e.target.value));
   };
 
-  const onSeekEnd = (e: any) => {
-    setIsDragging(false);
-    // Create a synthetic event to pass back to parent's handleSeek
-    const syntheticEvent = {
-        target: { value: localSeekValue }
-    } as React.ChangeEvent<HTMLInputElement>;
-    
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // CRITICAL: Stop the modal drag so the slider works
+    e.stopPropagation();
+    setIsScrubbing(true);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+     setIsScrubbing(false);
+     const syntheticEvent = {
+        target: { value: scrubValue.toString() },
+        currentTarget: { value: scrubValue.toString() }
+    } as unknown as React.ChangeEvent<HTMLInputElement>;
     handleSeek(syntheticEvent);
+  };
+
+  // 2. Button Logic (Stop Propagation)
+  const handleButtonPress = (e: React.PointerEvent, action: () => void) => {
+    e.stopPropagation(); // Stop the modal from dragging when clicking buttons
+    action();
   };
 
   return (
@@ -154,14 +166,10 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                    exit={{ opacity: 0, scale: 0.9 }}
                    className={`flex-1 flex flex-col justify-center ${showQueue ? 'hidden md:flex' : ''}`}
                  >
-                   {/* -- NEW: Apple Music Style Scale Animation -- */}
+                   {/* Apple Music Style Animation */}
                    <motion.div
-                     layoutId={`cover-${currentTrack.id}`}
-                     animate={{ 
-                       scale: playerState.isPlaying ? 1 : 0.85,
-                       opacity: 1 
-                     }}
-                     transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                     animate={{ scale: playerState.isPlaying ? 1 : 0.85 }}
+                     transition={{ type: "spring", stiffness: 80, damping: 15 }}
                      className="aspect-square w-full max-w-md mx-auto rounded-[2rem] overflow-hidden shadow-2xl mb-8 md:mb-0"
                    >
                      <img src={currentTrack.coverArt} className="w-full h-full object-cover" alt="Cover" />
@@ -175,6 +183,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
               )}
             </AnimatePresence>
 
+            {/* Queue UI (unchanged) */}
             <AnimatePresence mode="wait">
               {showQueue && (
                 <motion.div 
@@ -208,24 +217,25 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                 <div className="relative w-full h-1.5 bg-white/10 rounded-full mb-8 group touch-none">
                   <div
                     className="absolute h-full bg-white rounded-full z-0 pointer-events-none"
-                    style={{ width: `${(localSeekValue / duration) * 100}%` }}
+                    style={{ width: `${(scrubValue / duration) * 100}%` }}
                   />
                   
-                  {/* -- NEW: Fixed Input Logic -- */}
+                  {/* SLIDER INPUT with StopPropagation */}
                   <input
                     type="range"
-                    step="0.01" // Smoother sliding
+                    step="0.01"
                     min="0"
                     max={duration || 0}
-                    value={localSeekValue}
-                    onChange={onSeekChange}
-                    onMouseUp={onSeekEnd}
-                    onTouchEnd={onSeekEnd}
+                    value={scrubValue}
+                    onChange={handleScrubChange}
+                    onPointerDown={handlePointerDown}
+                    onPointerUp={handlePointerUp}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    style={{ touchAction: 'none' }} 
                   />
 
                   <div className="flex justify-between mt-4 text-xs text-white/40 font-mono">
-                    <span>{formatTime(localSeekValue)}</span>
+                    <span>{formatTime(scrubValue)}</span>
                     <span>{formatTime(duration)}</span>
                   </div>
                 </div>
@@ -236,13 +246,27 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
                   </button>
 
                   <div className="flex items-center gap-8">
-                    <SkipBack size={32} fill="white" className="cursor-pointer hover:scale-110 transition-transform active:scale-95" onClick={prevTrack} />
+                    {/* BUTTON WRAPPERS with StopPropagation */}
+                    <button 
+                        onPointerDown={(e) => handleButtonPress(e, prevTrack)}
+                        className="p-2 hover:scale-110 active:scale-95 transition-transform"
+                    >
+                        <SkipBack size={32} fill="white" />
+                    </button>
                     
-                    <button onClick={togglePlay} className="w-20 h-20 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-white/20">
+                    <button 
+                        onPointerDown={(e) => handleButtonPress(e, togglePlay)}
+                        className="w-20 h-20 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-white/20"
+                    >
                       {playerState.isPlaying ? <Pause size={32} fill="black" /> : <Play size={32} fill="black" className="ml-1" />}
                     </button>
                     
-                    <SkipForward size={32} fill="white" className="cursor-pointer hover:scale-110 transition-transform active:scale-95" onClick={nextTrack} />
+                    <button 
+                        onPointerDown={(e) => handleButtonPress(e, nextTrack)}
+                        className="p-2 hover:scale-110 active:scale-95 transition-transform"
+                    >
+                        <SkipForward size={32} fill="white" />
+                    </button>
                   </div>
 
                   <button onClick={toggleRepeat} className={`p-2 transition-colors relative ${playerState.repeat !== 'OFF' ? 'text-primary' : 'text-white/40 hover:text-white'}`}>
@@ -255,6 +279,7 @@ const FullPlayer: React.FC<FullPlayerProps> = React.memo(({
 
                 <div className="flex justify-center mt-10">
                   <button
+                    onPointerDown={(e) => e.stopPropagation()} 
                     onClick={() => setShowQueue(!showQueue)}
                     className={`p-3 rounded-full transition-colors ${showQueue ? 'bg-white/20 text-white' : 'text-white/40'}`}
                   >
