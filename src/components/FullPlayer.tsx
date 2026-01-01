@@ -212,7 +212,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     transition={{ duration: 0.2 }}
                     // Stop propagation here so scrolling the list doesn't drag the modal
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="flex-1 overflow-y-auto bg-white/5 rounded-3xl p-4 backdrop-blur scrollbar-hide h-full max-h-[70vh] landscape:max-h-full"
+                    className="flex-1 flex flex-col bg-white/5 rounded-3xl p-4 backdrop-blur h-full max-h-[70vh] landscape:max-h-full overflow-hidden"
                   >
                     <QueueList
                       queue={playerState.queue}
@@ -220,6 +220,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                       tracks={tracks}
                       onPlay={id => playTrack(id, { fromQueue: true })}
                       onRemove={onRemoveTrack}
+                      onPlayNext={id => playTrack(id, { immediate: false })}
                       onReorder={q =>
                         setPlayerState(p => ({ ...p, queue: q }))
                       }

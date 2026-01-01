@@ -126,14 +126,36 @@ export const useAudioPlayer = (
                  newQueue = [trackId];
                  newOriginalQueue = [trackId];
              } else {
+                 // Note: This logic seems to assume currentTrackId is unique or we are okay with the first match
+                 // If duplicates exist, this might pick the wrong one, but it is consistent with rest of app
                  const currentIdx = prev.queue.indexOf(prev.currentTrackId || '');
-                 const filteredQueue = prev.queue.filter(id => id !== trackId);
                  
+                 // If we are just queueing up "Play Next", we don't remove it from elsewhere unless we want to move it.
+                 // The prompt says "move songs to play next", implying move.
+                 const filteredQueue = prev.queue.filter((id, idx) => {
+                     // If we are strictly moving, we should probably remove it.
+                     // But if duplicate, removing all instances might be aggressive.
+                     // For now, removing all instances of trackId to avoid duplicates in queue
+                     return id !== trackId;
+                 });
+
+                 // Re-find current index in filtered queue (it might have shifted)
+                 let newCurrentIdx = filteredQueue.indexOf(prev.currentTrackId || '');
+                 if (newCurrentIdx === -1) {
+                     // Should not happen if currentTrackId was not trackId, or if it was, we aren't here if immediate=true usually?
+                     // If we are playing track A, and we say "Play Next A", immediate=false...
+                     // Then we just moved A to be next? But A is current.
+                     // The logic below handles `prev.currentTrackId === trackId`.
+                     newCurrentIdx = 0;
+                 }
+
                  // If playing same song, keep it; otherwise insert after current
                  if (prev.currentTrackId === trackId) {
-                      newQueue = [trackId, ...filteredQueue];
+                      // If we are already playing it, and we want to "Play Next", it means nothing usually.
+                      // Or it means play it AGAIN after this one?
+                      // Standard behavior: Play it again.
+                      newQueue = [trackId, trackId, ...filteredQueue];
                  } else {
-                      const newCurrentIdx = filteredQueue.indexOf(prev.currentTrackId || '');
                       const q = [...filteredQueue];
                       q.splice(newCurrentIdx + 1, 0, trackId);
                       newQueue = q;
@@ -145,9 +167,11 @@ export const useAudioPlayer = (
              }
         }
 
-        // Update Media Session
-        const track = libraryTracks[trackId];
-        if (track) updateMediaSession(track);
+        // Update Media Session only if playing immediately
+        if (immediate) {
+             const track = libraryTracks[trackId];
+             if (track) updateMediaSession(track);
+        }
 
         return {
           ...prev,
