@@ -48,3 +48,15 @@ export interface Metadata {
   description: string;
   requestFramePermissions: any[];
 }
+
+export interface LyricLine {
+  time: number; // in seconds
+  text: string;
+}
+
+export interface Lyrics {
+  lines: LyricLine[];
+  plain?: string;
+  synced: boolean;
+  error?: boolean;
+}
