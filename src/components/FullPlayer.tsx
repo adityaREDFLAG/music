@@ -29,6 +29,25 @@ const formatTime = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+// --- PROPS INTERFACE (Assumed based on usage) ---
+interface FullPlayerProps {
+  currentTrack: Track | null;
+  playerState: PlayerState;
+  isPlayerOpen: boolean;
+  onClose: () => void;
+  togglePlay: () => void;
+  playTrack: (id: string, options?: any) => void;
+  nextTrack: () => void;
+  prevTrack: () => void;
+  setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
+  currentTime: number;
+  duration: number;
+  handleSeek: (time: number) => void;
+  onVolumeChange?: (volume: number) => void;
+  toggleShuffle: () => void;
+  onRemoveTrack?: (id: string) => void;
+}
+
 const FullPlayer: React.FC<FullPlayerProps> = ({
   currentTrack,
   playerState,
@@ -50,34 +69,42 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
-  const [localVolume, setLocalVolume] = useState(1); // Default volume 100%
+  const [localVolume, setLocalVolume] = useState(1);
 
   const safeDuration = Math.max(duration, 0.01);
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
 
-  // --- Media Session API ---
+  // --- Media Session API (iOS Control Center) ---
   useEffect(() => {
     if (!('mediaSession' in navigator) || !currentTrack) return;
 
-    // Update Metadata
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentTrack.title,
-      artist: currentTrack.artist,
-      artwork: [{ src: currentTrack.coverArt, sizes: '512x512', type: 'image/png' }],
-    });
-
-    // Update Playback State
-    if (safeDuration > 0.01) {
-      navigator.mediaSession.setPositionState({
-        duration: safeDuration,
-        playbackRate: 1.0,
-        position: Math.min(currentTime, safeDuration),
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        artwork: [
+          { src: currentTrack.coverArt, sizes: '96x96', type: 'image/png' },
+          { src: currentTrack.coverArt, sizes: '128x128', type: 'image/png' },
+          { src: currentTrack.coverArt, sizes: '192x192', type: 'image/png' },
+          { src: currentTrack.coverArt, sizes: '256x256', type: 'image/png' },
+          { src: currentTrack.coverArt, sizes: '512x512', type: 'image/png' },
+        ],
       });
+
+      // Update Playback State
+      if (safeDuration > 0.01 && !isNaN(currentTime)) {
+        navigator.mediaSession.setPositionState({
+          duration: safeDuration,
+          playbackRate: 1.0,
+          position: Math.min(Math.max(0, currentTime), safeDuration),
+        });
+      }
+    } catch (e) {
+      console.warn("Media Session update failed", e);
     }
 
-    // Handlers
     const actionHandlers = [
       ['play', togglePlay],
       ['pause', togglePlay],
@@ -93,7 +120,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
     actionHandlers.forEach(([action, handler]) => {
       try { navigator.mediaSession.setActionHandler(action as any, handler as any); } 
-      catch (e) { console.error(`MediaSession error on ${action}:`, e); }
+      catch (e) { /* Ignore unsupported actions */ }
     });
 
     return () => {
@@ -104,7 +131,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   }, [currentTrack, playerState.isPlaying, safeDuration, currentTime, togglePlay, prevTrack, nextTrack, handleSeek]);
 
   // --- Scrubbing Sync ---
-  // Only sync scrubValue with actual time if user is NOT currently dragging the slider
   useEffect(() => {
     if (!isScrubbing) {
       setScrubValue(currentTime);
@@ -115,7 +141,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     setScrubValue(Number(e.target.value));
   };
 
-  const handleSeekPointerUp = () => {
+  // Fixed: Handles both Mouse and Touch end events
+  const handleSeekCommit = () => {
     setIsScrubbing(false);
     handleSeek(scrubValue);
   };
@@ -126,7 +153,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     if (onVolumeChange) onVolumeChange(vol);
   };
 
-  // --- Fetch Tracks for Queue Lookups ---
+  // --- Fetch Tracks ---
   useEffect(() => {
     if (!isPlayerOpen) return;
     let isMounted = true;
@@ -139,7 +166,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           setTracks(map);
         }
       } catch (error) {
-        console.error("Failed to load tracks for player:", error);
+        console.error("Failed to load tracks:", error);
       }
     })();
     return () => { isMounted = false; };
@@ -165,7 +192,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           drag="y"
           dragControls={dragControls}
-          dragListener={false}
+          dragListener={false} // Only drag via handle
           dragConstraints={{ top: 0 }}
           dragElastic={0.05}
           style={{ opacity, y: dragY }}
@@ -188,7 +215,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
           </div>
 
-          {/* Drag Handle */}
+          {/* Drag Handle - This starts the modal drag */}
           <div 
             onPointerDown={(e) => dragControls.start(e)}
             className="h-12 w-full flex items-center justify-center cursor-grab active:cursor-grabbing z-20"
@@ -198,7 +225,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
           <main className="flex-1 px-8 pb-10 flex flex-col landscape:flex-row items-center justify-center gap-8 landscape:gap-16">
             
-            {/* Left: Artwork / Queue */}
+            {/* Left: Artwork */}
             <div className="w-full max-w-[360px] landscape:max-w-[400px] aspect-square relative flex items-center justify-center">
               <AnimatePresence mode="wait">
                 {!showQueue ? (
@@ -225,16 +252,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     exit={{ opacity: 0, scale: 0.95 }}
                     className="absolute inset-0 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden flex flex-col"
                   >
-                    {/* Assuming QueueList handles its own scrolling internally */}
-                     {/* <QueueList
-                      queue={playerState.queue}
-                      currentTrackId={currentTrack.id}
-                      tracks={tracks}
-                      onPlay={id => playTrack(id, { fromQueue: true })}
-                      onRemove={onRemoveTrack}
-                      onReorder={q => setPlayerState(p => ({ ...p, queue: q }))}
-                      onClose={() => setShowQueue(false)}
-                    /> */}
                     <div className="p-4 text-center text-white/50">Queue Component Here</div>
                   </motion.div>
                 )}
@@ -254,13 +271,14 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 </p>
               </div>
 
-              {/* Progress Slider */}
-              <div className="group">
+              {/* Progress Slider (FIXED FOR IOS) */}
+              <div className="group relative pt-4 pb-2">
                 <div className="relative h-1 w-full bg-white/20 rounded-full group-hover:h-2 transition-all">
                   <div 
                     className="absolute h-full bg-white rounded-full transition-all" 
                     style={{ width: `${(scrubValue / safeDuration) * 100}%` }}
                   />
+                  {/* The Input - Improved z-index and event handling */}
                   <input
                     type="range"
                     min={0}
@@ -268,9 +286,18 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     step={0.1}
                     value={scrubValue}
                     onChange={handleSeekChange}
-                    onPointerDown={() => setIsScrubbing(true)}
-                    onPointerUp={handleSeekPointerUp}
-                    className="absolute inset-0 w-full h-4 -top-1 opacity-0 cursor-pointer"
+                    // CRITICAL: Stop propagation so we don't drag the modal
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      setIsScrubbing(true);
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      setIsScrubbing(true);
+                    }}
+                    onPointerUp={handleSeekCommit}
+                    onTouchEnd={handleSeekCommit}
+                    className="absolute inset-0 w-full h-6 -top-2.5 opacity-0 cursor-pointer z-50"
                   />
                 </div>
                 <div className="flex justify-between mt-2 text-xs font-medium text-white/40 font-mono">
@@ -284,20 +311,18 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 <button 
                     onClick={toggleShuffle} 
                     className={`p-2 rounded-full transition-colors ${playerState.shuffle ? 'text-green-400 bg-white/10' : 'text-white/60 hover:text-white'}`}
-                    aria-label="Toggle Shuffle"
                 >
                   <Shuffle size={20} />
                 </button>
 
                 <div className="flex items-center gap-6">
-                  <button onClick={prevTrack} className="text-white/90 hover:text-white transition-transform active:scale-95" aria-label="Previous">
+                  <button onClick={prevTrack} className="text-white/90 hover:text-white active:scale-95 transition-transform">
                     <SkipBack size={28} fill="currentColor" />
                   </button>
                   
                   <button 
                     onClick={togglePlay} 
                     className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-black shadow-lg hover:scale-105 active:scale-95 transition-all"
-                    aria-label={playerState.isPlaying ? "Pause" : "Play"}
                   >
                     {playerState.isPlaying ? 
                       <Pause size={32} fill="currentColor" /> : 
@@ -305,7 +330,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     }
                   </button>
                   
-                  <button onClick={nextTrack} className="text-white/90 hover:text-white transition-transform active:scale-95" aria-label="Next">
+                  <button onClick={nextTrack} className="text-white/90 hover:text-white active:scale-95 transition-transform">
                     <SkipForward size={28} fill="currentColor" />
                   </button>
                 </div>
@@ -313,7 +338,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 <button 
                     onClick={toggleRepeat} 
                     className={`p-2 relative rounded-full transition-colors ${playerState.repeat !== 'OFF' ? 'text-green-400 bg-white/10' : 'text-white/60 hover:text-white'}`}
-                    aria-label="Toggle Repeat"
                 >
                   <Repeat size={20} />
                   {playerState.repeat === 'ONE' && (
@@ -322,9 +346,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 </button>
               </div>
 
-              {/* Bottom Row: Volume & Queue Toggle */}
+              {/* Bottom Row */}
               <div className="flex items-center justify-between mt-4">
-                 {/* Volume Control */}
                 <div className="flex items-center gap-2 group w-32">
                    <button onClick={() => handleVolumeChange({ target: { value: localVolume > 0 ? 0 : 1 }} as any)} className="text-white/50 hover:text-white">
                       {localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
@@ -335,7 +358,10 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                         type="range" min={0} max={1} step={0.05} 
                         value={localVolume} 
                         onChange={handleVolumeChange}
-                        className="absolute inset-0 opacity-0 cursor-pointer"
+                        // Stop propagation here too
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        className="absolute inset-0 opacity-0 cursor-pointer z-50"
                       />
                    </div>
                 </div>
@@ -343,7 +369,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 <button 
                   onClick={() => setShowQueue(!showQueue)}
                   className={`p-2.5 rounded-full transition-all ${showQueue ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                  aria-label="Toggle Queue"
                 >
                   {showQueue ? <ChevronDown size={20} /> : <ListMusic size={20} />}
                 </button>
