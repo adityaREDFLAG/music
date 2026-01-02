@@ -38,6 +38,7 @@ interface FullPlayerProps {
   onVolumeChange: (volume: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack: (trackId: string) => void;
+  themeColor?: string;
 }
 
 const formatTime = (time: number) => {
@@ -63,6 +64,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   onVolumeChange,
   toggleShuffle,
   onRemoveTrack,
+  themeColor,
 }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [tracks, setTracks] = useState<Record<string, Track>>({});
