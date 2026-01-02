@@ -15,8 +15,6 @@ import {
   Repeat,
   ListMusic,
   ChevronDown,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
@@ -29,7 +27,7 @@ const formatTime = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-// --- PROPS INTERFACE (Assumed based on usage) ---
+// --- PROPS INTERFACE ---
 interface FullPlayerProps {
   currentTrack: Track | null;
   playerState: PlayerState;
@@ -43,7 +41,7 @@ interface FullPlayerProps {
   currentTime: number;
   duration: number;
   handleSeek: (time: number) => void;
-  onVolumeChange?: (volume: number) => void;
+  onVolumeChange?: (volume: number) => void; // Kept in interface to prevent parent errors, but unused in UI
   toggleShuffle: () => void;
   onRemoveTrack?: (id: string) => void;
 }
@@ -61,7 +59,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   currentTime,
   duration,
   handleSeek,
-  onVolumeChange,
   toggleShuffle,
   onRemoveTrack,
 }) => {
@@ -69,7 +66,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
-  const [localVolume, setLocalVolume] = useState(1);
 
   const safeDuration = Math.max(duration, 0.01);
   const dragControls = useDragControls();
@@ -145,12 +141,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const handleSeekCommit = () => {
     setIsScrubbing(false);
     handleSeek(scrubValue);
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const vol = Number(e.target.value);
-    setLocalVolume(vol);
-    if (onVolumeChange) onVolumeChange(vol);
   };
 
   // --- Fetch Tracks ---
@@ -346,26 +336,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 </button>
               </div>
 
-              {/* Bottom Row */}
-              <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center gap-2 group w-32">
-                   <button onClick={() => handleVolumeChange({ target: { value: localVolume > 0 ? 0 : 1 }} as any)} className="text-white/50 hover:text-white">
-                      {localVolume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                   </button>
-                   <div className="relative h-1 flex-1 bg-white/10 rounded-full overflow-hidden">
-                      <div className="absolute h-full bg-white/80" style={{ width: `${localVolume * 100}%` }} />
-                      <input 
-                        type="range" min={0} max={1} step={0.05} 
-                        value={localVolume} 
-                        onChange={handleVolumeChange}
-                        // Stop propagation here too
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        className="absolute inset-0 opacity-0 cursor-pointer z-50"
-                      />
-                   </div>
-                </div>
-
+              {/* Bottom Row (Queue Only - Volume Removed) */}
+              <div className="flex items-center justify-end mt-4">
                 <button 
                   onClick={() => setShowQueue(!showQueue)}
                   className={`p-2.5 rounded-full transition-all ${showQueue ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
