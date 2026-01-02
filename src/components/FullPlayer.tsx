@@ -34,7 +34,8 @@ interface FullPlayerProps {
   setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
   currentTime: number;
   duration: number;
-  handleSeek: (e: any) => void;
+  handleSeek: (time: number) => void;
+  onVolumeChange: (volume: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack: (trackId: string) => void;
 }
@@ -59,6 +60,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   currentTime,
   duration,
   handleSeek,
+  onVolumeChange,
   toggleShuffle,
   onRemoveTrack,
 }) => {
@@ -121,7 +123,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   // 3. End scrubbing (commits the seek)
   const handleScrubEnd = () => {
     // Commit the seek operation only once
-    handleSeek({ target: { value: scrubValue } });
+    handleSeek(scrubValue);
     
     // Small delay to prevent jitter from old time update arriving late
     setTimeout(() => {
@@ -300,7 +302,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               {/* Volume Slider */}
               <div className="mt-6 flex items-center gap-4 px-2" onPointerDown={(e) => e.stopPropagation()}>
                 <button
-                   onClick={() => setPlayerState(p => ({ ...p, volume: p.volume === 0 ? 1 : 0 }))}
+                   onClick={() => onVolumeChange(playerState.volume === 0 ? 1 : 0)}
                    className="text-white/50 hover:text-white transition-colors"
                 >
                     {playerState.volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -316,7 +318,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                         max="1"
                         step="0.01"
                         value={playerState.volume}
-                        onChange={(e) => setPlayerState(p => ({ ...p, volume: Number(e.target.value) }))}
+                        onChange={(e) => onVolumeChange(Number(e.target.value))}
                         className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer"
                    />
                 </div>

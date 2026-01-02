@@ -78,6 +78,7 @@ function MusicApp() {
     nextTrack,
     prevTrack,
     handleSeek,
+    setVolume,
     toggleShuffle,
     playTrack
   } = useAudioPlayer(library.tracks, updateMediaSession);
@@ -260,22 +261,22 @@ function MusicApp() {
                 break;
             case 'ArrowUp':
                 e.preventDefault();
-                setPlayer(p => ({ ...p, volume: Math.min(1, p.volume + 0.05) }));
+                setVolume(player.volume + 0.05);
                 break;
             case 'ArrowDown':
                 e.preventDefault();
-                setPlayer(p => ({ ...p, volume: Math.max(0, p.volume - 0.05) }));
+                setVolume(player.volume - 0.05);
                 break;
             case 'KeyM':
                 e.preventDefault();
-                setPlayer(p => ({ ...p, volume: p.volume === 0 ? 1 : 0 }));
+                setVolume(player.volume === 0 ? 1 : 0);
                 break;
         }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, handleSeek, currentTime, setPlayer]);
+  }, [togglePlay, handleSeek, currentTime, player.volume, setVolume]);
 
   return (
     <>
@@ -367,8 +368,8 @@ function MusicApp() {
         setPlayerState={setPlayer}
         currentTime={currentTime}
         duration={duration}
-        // This bridges the UI Event -> Number conversion for the hook
-        handleSeek={(e) => handleSeek(Number(e.target.value))}
+        handleSeek={handleSeek}
+        onVolumeChange={setVolume}
         themeColor={themeColor}
         toggleShuffle={toggleShuffle}
         onRemoveTrack={handleRemoveFromQueue}

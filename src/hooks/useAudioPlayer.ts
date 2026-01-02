@@ -84,9 +84,9 @@ export const useAudioPlayer = (
     };
   }, []);
 
-  // Sync Master Volume
+  // Sync Master Volume (Init & External Changes)
   useEffect(() => {
-    if (audioRef.current) {
+    if (audioRef.current && Math.abs(audioRef.current.volume - player.volume) > 0.01) {
       audioRef.current.volume = player.volume;
     }
   }, [player.volume]);
@@ -268,11 +268,21 @@ export const useAudioPlayer = (
   const handleSeek = useCallback((time: number) => {
       const audio = audioRef.current;
       if (audio) {
+          // Clamp time
+          const t = Math.max(0, Math.min(time, audio.duration || 0));
           // 1. Mutate Audio (Source of Truth)
-          audio.currentTime = time;
+          audio.currentTime = t;
           // 2. Update React State immediately
-          setCurrentTime(time);
+          setCurrentTime(t);
       }
+  }, []);
+
+  const setVolume = useCallback((volume: number) => {
+      const v = Math.max(0, Math.min(1, volume));
+      if (audioRef.current) {
+          audioRef.current.volume = v;
+      }
+      setPlayer(p => ({ ...p, volume: v }));
   }, []);
 
   const toggleShuffle = useCallback(() => {
@@ -388,6 +398,7 @@ export const useAudioPlayer = (
     nextTrack,
     prevTrack,
     handleSeek,
+    setVolume,
     toggleShuffle
   };
 };
