@@ -217,7 +217,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             if (i.offset.y > 150) onClose();
             else dragY.set(0);
           }}
-          className="fixed inset-0 z-[200] bg-black flex flex-col"
+          className="fixed inset-0 z-[600] bg-black flex flex-col"
         >
           {/* background */}
           <div className="absolute inset-0 -z-10 overflow-hidden">

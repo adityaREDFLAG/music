@@ -347,14 +347,18 @@ function MusicApp() {
         {loading.active && <LoadingOverlay {...loading} />}
       </AnimatePresence>
 
-      <MiniPlayer
-        currentTrack={currentTrack}
-        playerState={player}
-        isPlayerOpen={isPlayerOpen}
-        onOpen={() => setIsPlayerOpen(true)}
-        togglePlay={togglePlay}
-        progress={currentTime / (duration || 1)}
-      />
+      <AnimatePresence>
+        {currentTrack && !isPlayerOpen && (
+          <MiniPlayer
+            currentTrack={currentTrack}
+            playerState={player}
+            isPlayerOpen={isPlayerOpen}
+            onOpen={() => setIsPlayerOpen(true)}
+            togglePlay={togglePlay}
+            progress={currentTime / (duration || 1)}
+          />
+        )}
+      </AnimatePresence>
 
       <FullPlayer
         currentTrack={currentTrack}
