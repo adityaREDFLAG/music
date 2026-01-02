@@ -292,4 +292,3 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
 // This line is what the error is complaining about:
 export default FullPlayer;
-};
