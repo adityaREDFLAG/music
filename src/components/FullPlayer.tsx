@@ -72,17 +72,19 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   // -- Seek State --
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
+  const scrubValueRef = useRef(0); // Ref to hold latest value for event listeners
 
   // -- Volume State --
   const [isVolumeScrubbing, setIsVolumeScrubbing] = useState(false);
   const [localVolume, setLocalVolume] = useState(playerState.volume);
+  const localVolumeRef = useRef(playerState.volume);
 
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
 
-  const windowHeight =
-    typeof window !== 'undefined' ? window.innerHeight : 1000;
+  // Use a stable window height, defaulting safely
+  const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
   useEffect(() => {
     dragY.set(0);
@@ -92,6 +94,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   useEffect(() => {
     if (!isScrubbing) {
       setScrubValue(currentTime);
+      scrubValueRef.current = currentTime;
     }
   }, [currentTime, isScrubbing]);
 
@@ -99,6 +102,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   useEffect(() => {
     if (!isVolumeScrubbing) {
       setLocalVolume(playerState.volume);
+      localVolumeRef.current = playerState.volume;
     }
   }, [playerState.volume, isVolumeScrubbing]);
 
@@ -129,32 +133,29 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
     if (!isScrubbing) setIsScrubbing(true);
-    setScrubValue(Number(e.target.value));
-  };
-
-  const handleScrubEnd = () => {
-    if (isScrubbing) {
-      handleSeek(scrubValue);
-      // Small delay to prevent the immediate next timeupdate from jumping back
-      setTimeout(() => {
-        setIsScrubbing(false);
-      }, 100);
-    }
+    setScrubValue(val);
+    scrubValueRef.current = val;
   };
 
   // Attach global pointer up when scrubbing to catch release outside
   useEffect(() => {
     if (isScrubbing) {
       const onGlobalPointerUp = () => {
-         handleScrubEnd();
+         // Use the ref value to ensure we get the latest without re-binding listener
+         handleSeek(scrubValueRef.current);
+         // Small delay to prevent jitter
+         setTimeout(() => {
+           setIsScrubbing(false);
+         }, 50);
       };
-      window.addEventListener('pointerup', onGlobalPointerUp);
+      window.addEventListener('pointerup', onGlobalPointerUp, { once: true });
       return () => {
         window.removeEventListener('pointerup', onGlobalPointerUp);
       };
     }
-  }, [isScrubbing, scrubValue]);
+  }, [isScrubbing, handleSeek]); // Only re-run if isScrubbing changes state
 
 
   // --- VOLUME LOGIC ---
@@ -166,31 +167,28 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
     setLocalVolume(val);
+    localVolumeRef.current = val;
+
     if (!isVolumeScrubbing) setIsVolumeScrubbing(true);
+
     // We update the audio immediately even during drag for responsiveness
     onVolumeChange(val);
-  };
-
-  const handleVolumeEnd = () => {
-    if (isVolumeScrubbing) {
-       // Ensure final value is committed
-       onVolumeChange(localVolume);
-       setIsVolumeScrubbing(false);
-    }
   };
 
   // Attach global pointer up for volume too
   useEffect(() => {
     if (isVolumeScrubbing) {
       const onGlobalPointerUp = () => {
-         handleVolumeEnd();
+         // Ensure final value is committed
+         onVolumeChange(localVolumeRef.current);
+         setIsVolumeScrubbing(false);
       };
-      window.addEventListener('pointerup', onGlobalPointerUp);
+      window.addEventListener('pointerup', onGlobalPointerUp, { once: true });
       return () => {
         window.removeEventListener('pointerup', onGlobalPointerUp);
       };
     }
-  }, [isVolumeScrubbing, localVolume]);
+  }, [isVolumeScrubbing, onVolumeChange]);
 
 
   // Calculate max once to ensure stability
@@ -208,18 +206,18 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           initial={{ y: windowHeight }}
           animate={{ y: 0 }}
           exit={{ y: windowHeight }}
-          transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           drag="y"
           dragControls={dragControls}
           dragConstraints={{ top: 0 }} 
-          dragElastic={0.12}
+          dragElastic={0.1}
           style={{ opacity }}
           onDrag={(_, i) => dragY.set(i.offset.y)}
           onDragEnd={(_, i) => {
             if (i.offset.y > 150) onClose();
             else dragY.set(0);
           }}
-          className="fixed inset-0 z-[100] bg-black flex flex-col"
+          className="fixed inset-0 z-[200] bg-black flex flex-col"
         >
           {/* background */}
           <div className="absolute inset-0 -z-10 overflow-hidden">
