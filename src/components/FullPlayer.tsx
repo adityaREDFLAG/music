@@ -220,19 +220,26 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           className="fixed inset-0 z-[600] bg-black flex flex-col"
         >
           {/* background */}
-          <div className="absolute inset-0 -z-10 overflow-hidden">
-            <motion.div
-              key={currentTrack.coverArt}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.4 }}
-              transition={{ duration: 1 }}
-              className="absolute inset-0"
-            >
-              <img
-                src={currentTrack.coverArt}
-                className="w-full h-full object-cover blur-[120px] scale-125"
+          <div className="absolute inset-0 -z-10 overflow-hidden bg-zinc-900">
+            {currentTrack.coverArt ? (
+              <motion.div
+                key={currentTrack.coverArt}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.4 }}
+                transition={{ duration: 1 }}
+                className="absolute inset-0"
+              >
+                <img
+                  src={currentTrack.coverArt}
+                  className="w-full h-full object-cover blur-[120px] scale-125"
+                />
+              </motion.div>
+            ) : (
+              <div
+                className="absolute inset-0 opacity-30"
+                style={{ backgroundColor: themeColor || '#18181b' }}
               />
-            </motion.div>
+            )}
             <div className="absolute inset-0 bg-black/50" />
           </div>
 
@@ -244,10 +251,10 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             <div className="w-12 h-1.5 bg-white/30 rounded-full" />
           </div>
 
-          <main className="flex-1 px-6 pb-10 flex flex-col landscape:flex-row landscape:items-center landscape:justify-center landscape:gap-12 landscape:px-12">
+          <main className="flex-1 px-6 pb-10 flex flex-col landscape:flex-row landscape:items-center landscape:justify-center landscape:gap-12 landscape:px-12 relative z-10 w-full">
             
             {/* LEFT SIDE: Art or Queue */}
-            <div className="flex-1 flex flex-col landscape:h-full landscape:justify-center landscape:w-1/2 landscape:max-w-lg relative">
+            <div className="flex-1 flex flex-col landscape:justify-center landscape:flex-1 landscape:max-w-lg relative">
               <AnimatePresence mode="wait">
                 {!showQueue ? (
                   <motion.div
@@ -300,13 +307,13 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             </div>
 
             {/* RIGHT SIDE: Controls & Info */}
-            <div className="flex flex-col landscape:w-1/2 landscape:max-w-md landscape:justify-center">
+            <div className="flex flex-col landscape:flex-1 landscape:max-w-md landscape:justify-center">
               
               {!showQueue && (
                   <div className="text-center mt-6 mb-2 landscape:mt-0 landscape:mb-8 landscape:text-left">
                     <AnimatePresence mode="wait">
                       <motion.div
-                        key={currentTrack.title}
+                        key={currentTrack.title || 'title'}
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
                         exit={{ y: -20, opacity: 0 }}
