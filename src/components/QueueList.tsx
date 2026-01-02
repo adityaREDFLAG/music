@@ -33,11 +33,6 @@ const QueueItem = ({
 }) => {
   const controls = useDragControls();
 
-  // If it's a history item or current, we don't use Reorder.Item (or we disable drag)
-  // But Reorder.Group requires Reorder.Item direct children usually.
-  // Actually, we are only using Reorder.Group for the upcoming list.
-  // So History items can be simple divs.
-
   const content = (
     <>
       {canDrag ? (
@@ -143,6 +138,12 @@ const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, on
   const current = queue[splitIndex]; // string id
   const upcoming = queue.slice(splitIndex + 1);
 
+  // Check for duplicate tracks in upcoming to prevent Reorder crash
+  const upcomingSet = new Set(upcoming);
+  const hasDuplicates = upcomingSet.size !== upcoming.length;
+  // If duplicates exist, disable reordering to avoid React keys conflict / Reorder crash
+  const canReorder = !hasDuplicates;
+
   // Handlers
   const handleReorderUpcoming = (newUpcoming: string[]) => {
     const newQueue = [...history, current, ...newUpcoming];
@@ -187,7 +188,7 @@ const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, on
                 if (!track) return null;
                 // Unique key: trackId + index to support duplicates properly if needed,
                 // but Reorder requires unique keys matching values.
-                // Since history isn't reorderable here, we can use index.
+                // Since history isn't reorderable here, we can use index in key.
                 return (
                     <QueueItem
                         key={`${trackId}-${i}`}
@@ -224,28 +225,55 @@ const QueueList: React.FC<QueueListProps> = ({ queue, currentTrackId, tracks, on
          {upcoming.length > 0 && (
             <div className="text-xs font-bold text-white/30 uppercase tracking-wider mb-2 px-2 mt-2">Up Next</div>
          )}
-         <Reorder.Group
-            axis="y"
-            values={upcoming}
-            onReorder={handleReorderUpcoming}
-            className="min-h-[50px]"
-         >
-            {upcoming.map((trackId) => {
-                const track = tracks[trackId];
-                if (!track) return null;
-                return (
-                    <QueueItem
-                        key={trackId}
-                        track={track}
-                        isCurrent={false}
-                        canDrag={true}
-                        onPlay={() => onPlay(trackId)}
-                        onRemove={() => onRemove(trackId)}
-                        onPlayNext={() => handlePlayNext(trackId)}
-                    />
-                );
-            })}
-         </Reorder.Group>
+
+         {canReorder ? (
+            <Reorder.Group
+                axis="y"
+                values={upcoming}
+                onReorder={handleReorderUpcoming}
+                className="min-h-[50px]"
+            >
+                {upcoming.map((trackId) => {
+                    const track = tracks[trackId];
+                    if (!track) return null;
+                    return (
+                        <QueueItem
+                            key={trackId}
+                            track={track}
+                            isCurrent={false}
+                            canDrag={true}
+                            onPlay={() => onPlay(trackId)}
+                            onRemove={() => onRemove(trackId)}
+                            onPlayNext={() => handlePlayNext(trackId)}
+                        />
+                    );
+                })}
+            </Reorder.Group>
+         ) : (
+            <div className="min-h-[50px]">
+                {!canReorder && (
+                    <div className="text-[10px] text-white/30 px-2 mb-2 italic">
+                        Reordering disabled due to duplicate tracks.
+                    </div>
+                )}
+                {upcoming.map((trackId, i) => {
+                    const track = tracks[trackId];
+                    if (!track) return null;
+                    return (
+                        <QueueItem
+                            key={`${trackId}-${i}`}
+                            track={track}
+                            isCurrent={false}
+                            canDrag={false} // Disable drag for duplicates
+                            onPlay={() => onPlay(trackId)}
+                            onRemove={() => onRemove(trackId)}
+                            onPlayNext={() => handlePlayNext(trackId)}
+                        />
+                    );
+                })}
+            </div>
+         )}
+
          {upcoming.length === 0 && (
              <div className="text-white/20 text-center py-8 text-sm italic">
                  End of queue
