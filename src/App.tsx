@@ -82,7 +82,7 @@ function MusicApp() {
     setVolume,
     toggleShuffle,
     playTrack,
-    audioRef // <--- CRITICAL: Get the ref from the hook
+    setAudioElement // <--- CRITICAL: Get the ref from the hook
   } = useAudioPlayer(library.tracks, updateMediaSession);
 
   // Queue Management
@@ -283,7 +283,7 @@ function MusicApp() {
     <>
       {/* 2. THE BACKGROUND PLAY FIX: Render Audio Element Here */}
       <audio 
-        ref={audioRef} 
+        ref={setAudioElement}
         playsInline 
         preload="auto"
         onError={(e) => console.error("Audio tag error:", e)}
