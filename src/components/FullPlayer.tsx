@@ -72,10 +72,12 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   // -- Seek State --
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
+  const scrubValueRef = useRef(0);
 
   // -- Volume State --
   const [isVolumeScrubbing, setIsVolumeScrubbing] = useState(false);
   const [localVolume, setLocalVolume] = useState(playerState.volume);
+  const localVolumeRef = useRef(playerState.volume);
 
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
@@ -92,6 +94,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   useEffect(() => {
     if (!isScrubbing) {
       setScrubValue(currentTime);
+      scrubValueRef.current = currentTime;
     }
   }, [currentTime, isScrubbing]);
 
@@ -99,6 +102,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   useEffect(() => {
     if (!isVolumeScrubbing) {
       setLocalVolume(playerState.volume);
+      localVolumeRef.current = playerState.volume;
     }
   }, [playerState.volume, isVolumeScrubbing]);
 
@@ -129,13 +133,15 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
     if (!isScrubbing) setIsScrubbing(true);
-    setScrubValue(Number(e.target.value));
+    setScrubValue(val);
+    scrubValueRef.current = val;
   };
 
   const handleScrubEnd = () => {
     if (isScrubbing) {
-      handleSeek(scrubValue);
+      handleSeek(scrubValueRef.current);
       // Small delay to prevent the immediate next timeupdate from jumping back
       setTimeout(() => {
         setIsScrubbing(false);
@@ -154,7 +160,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
         window.removeEventListener('pointerup', onGlobalPointerUp);
       };
     }
-  }, [isScrubbing, scrubValue]);
+  }, [isScrubbing]);
 
 
   // --- VOLUME LOGIC ---
@@ -166,6 +172,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
     setLocalVolume(val);
+    localVolumeRef.current = val;
     if (!isVolumeScrubbing) setIsVolumeScrubbing(true);
     // We update the audio immediately even during drag for responsiveness
     onVolumeChange(val);
@@ -174,7 +181,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const handleVolumeEnd = () => {
     if (isVolumeScrubbing) {
        // Ensure final value is committed
-       onVolumeChange(localVolume);
+       onVolumeChange(localVolumeRef.current);
        setIsVolumeScrubbing(false);
     }
   };
@@ -190,7 +197,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
         window.removeEventListener('pointerup', onGlobalPointerUp);
       };
     }
-  }, [isVolumeScrubbing, localVolume]);
+  }, [isVolumeScrubbing]);
 
 
   // Calculate max once to ensure stability
