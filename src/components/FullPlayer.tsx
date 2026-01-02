@@ -34,7 +34,7 @@ interface FullPlayerProps {
   setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
   currentTime: number;
   duration: number;
-  handleSeek: (e: any) => void;
+  handleSeek: (time: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack: (trackId: string) => void;
 }
@@ -121,7 +121,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   // 3. End scrubbing (commits the seek)
   const handleScrubEnd = () => {
     // Commit the seek operation only once
-    handleSeek({ target: { value: scrubValue } });
+    handleSeek(scrubValue);
     
     // Small delay to prevent jitter from old time update arriving late
     setTimeout(() => {
@@ -287,7 +287,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     onPointerUp={handleScrubEnd}
                     onMouseUp={handleScrubEnd}
                     onTouchEnd={handleScrubEnd}
-                    className="absolute inset-0 opacity-0 w-full h-4 -top-1.5 cursor-pointer touch-none"
+                    className="absolute inset-0 opacity-0 w-full h-4 -top-1.5 cursor-pointer touch-none z-10"
                   />
                 </div>
 
@@ -317,7 +317,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                         step="0.01"
                         value={playerState.volume}
                         onChange={(e) => setPlayerState(p => ({ ...p, volume: Number(e.target.value) }))}
-                        className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer"
+                        className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer z-10"
                    />
                 </div>
               </div>

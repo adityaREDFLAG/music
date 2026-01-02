@@ -368,7 +368,7 @@ function MusicApp() {
         currentTime={currentTime}
         duration={duration}
         // This bridges the UI Event -> Number conversion for the hook
-        handleSeek={(e) => handleSeek(Number(e.target.value))}
+        handleSeek={handleSeek}
         themeColor={themeColor}
         toggleShuffle={toggleShuffle}
         onRemoveTrack={handleRemoveFromQueue}
