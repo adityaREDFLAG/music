@@ -34,8 +34,8 @@ interface FullPlayerProps {
   setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
   currentTime: number;
   duration: number;
-  handleSeek: (time: number) => void; // Updated: number instead of event
-  onVolumeChange: (volume: number) => void; // Added for direct control
+  handleSeek: (time: number) => void;
+  onVolumeChange: (volume: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack: (trackId: string) => void;
 }
@@ -73,7 +73,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
-  const opacity = useTransform(dragY, [0, 200], [1, 0]);
+  const opacity = useTransform(dragY, [0, 300], [1, 0]);
 
   const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 1000;
 
@@ -108,16 +108,14 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     dbService.setSetting('repeat', next);
   };
 
-  // Direct numeric handlers
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setScrubValue(Number(e.target.value));
   };
 
   const handleScrubEnd = () => {
     handleSeek(scrubValue);
-    // iOS Safari requires a tiny delay to allow the audio buffer to catch up
-    // before we resume external state updates, preventing "jumps"
-    setTimeout(() => setIsScrubbing(false), 100);
+    // Tiny delay to prevent the "snap back" effect on slow connections
+    setTimeout(() => setIsScrubbing(false), 50);
   };
 
   const toggleMute = () => {
@@ -133,71 +131,76 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           initial={{ y: windowHeight }}
           animate={{ y: 0 }}
           exit={{ y: windowHeight }}
-          transition={{ type: 'spring', damping: 30, stiffness: 250 }}
+          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           drag="y"
           dragControls={dragControls}
-          dragListener={false} // Only drag via handle to prevent slider conflict
+          dragListener={false}
           dragConstraints={{ top: 0 }}
-          dragElastic={0.1}
+          dragElastic={0.2}
           style={{ opacity, y: dragY }}
           onDragEnd={(_, i) => {
             if (i.offset.y > 150 || i.velocity.y > 500) onClose();
             else dragY.set(0);
           }}
-          className="fixed inset-0 z-[100] bg-black flex flex-col touch-none"
+          className="fixed inset-0 z-[100] bg-black flex flex-col touch-none overflow-hidden"
         >
           {/* Background */}
           <div className="absolute inset-0 -z-10 overflow-hidden">
             <motion.div
               key={currentTrack.coverArt}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.4 }}
-              transition={{ duration: 0.6 }}
+              initial={{ opacity: 0, scale: 1.1 }}
+              animate={{ opacity: 0.4, scale: 1 }}
+              transition={{ duration: 0.8 }}
               className="absolute inset-0"
             >
               <img
                 src={currentTrack.coverArt}
                 alt=""
-                className="w-full h-full object-cover blur-[100px] scale-125"
+                className="w-full h-full object-cover blur-[80px] scale-125"
               />
             </motion.div>
             <div className="absolute inset-0 bg-black/60" />
           </div>
 
-          {/* Dedicated Drag Handle */}
+          {/* Drag Handle */}
           <div
             onPointerDown={(e) => dragControls.start(e)}
-            className="h-16 flex items-center justify-center cursor-grab active:cursor-grabbing flex-shrink-0"
+            className="h-12 flex items-center justify-center cursor-grab active:cursor-grabbing flex-shrink-0"
           >
-            <div className="w-10 h-1.5 bg-white/20 rounded-full" />
+            <div className="w-12 h-1.5 bg-white/20 rounded-full mt-2" />
           </div>
 
-          <main className="flex-1 px-6 pb-10 flex flex-col landscape:flex-row landscape:items-center landscape:justify-center landscape:gap-12">
+          <main className="flex-1 px-6 pb-8 flex flex-col landscape:flex-row landscape:items-center landscape:justify-center landscape:gap-12 min-h-0">
             
             {/* LEFT SIDE: Art or Queue */}
-            <div className="flex-1 flex flex-col landscape:h-full landscape:justify-center landscape:w-1/2 landscape:max-w-lg">
+            <div className="flex-1 flex flex-col min-h-0 landscape:h-full landscape:justify-center landscape:w-1/2 landscape:max-w-lg">
               <AnimatePresence mode="wait">
                 {!showQueue ? (
                   <motion.div
                     key="art-view"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="flex-1 flex items-center justify-center"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: playerState.isPlaying ? 1 : 0.94,
+                    }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ type: 'spring', damping: 20 }}
+                    className="flex-1 flex items-center justify-center p-4"
                   >
-                    <img
+                    <motion.img
+                      layoutId="albumArt"
                       src={currentTrack.coverArt}
-                      className="w-full max-w-[80vw] aspect-square rounded-2xl shadow-2xl object-cover landscape:max-h-[60vh]"
+                      className="w-full max-w-[320px] aspect-square rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] object-cover landscape:max-h-[60vh] landscape:max-w-none"
                       alt={currentTrack.title}
                     />
                   </motion.div>
                 ) : (
                   <motion.div
                     key="queue-view"
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 40 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 20 }}
-                    className="flex-1 flex flex-col bg-white/5 rounded-3xl p-4 backdrop-blur-md overflow-hidden"
+                    exit={{ opacity: 0, y: 40 }}
+                    className="flex-1 flex flex-col bg-white/5 rounded-3xl backdrop-blur-xl overflow-hidden border border-white/10"
                   >
                     <QueueList
                       queue={playerState.queue}
@@ -215,22 +218,26 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             </div>
 
             {/* RIGHT SIDE: Controls */}
-            <div className="flex flex-col landscape:w-1/2 landscape:max-w-md">
+            <div className="flex flex-col landscape:w-1/2 landscape:max-w-md pt-6">
               {!showQueue && (
-                <div className="mt-6 mb-2 landscape:text-left text-center">
+                <motion.div 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="mb-4 landscape:text-left text-center"
+                >
                   <h1 className="text-2xl font-bold text-white truncate landscape:text-4xl">
                     {currentTrack.title}
                   </h1>
                   <p className="text-white/50 truncate text-lg landscape:text-xl">
                     {currentTrack.artist}
                   </p>
-                </div>
+                </motion.div>
               )}
 
               {/* Progress Slider */}
-              <div className="mt-8">
+              <div className="mt-4">
                 <div className="relative h-1.5 bg-white/10 rounded-full group">
-                  <div 
+                  <motion.div 
                     className="absolute h-full bg-white rounded-full pointer-events-none"
                     style={{ width: `${(scrubValue / (duration || 1)) * 100}%` }}
                   />
@@ -243,23 +250,23 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     onChange={handleScrubChange}
                     onPointerDown={() => setIsScrubbing(true)}
                     onPointerUp={handleScrubEnd}
-                    className="absolute inset-0 opacity-0 w-full h-6 -top-2 cursor-pointer touch-none"
+                    className="absolute inset-0 opacity-0 w-full h-8 -top-3 cursor-pointer touch-none"
                   />
                 </div>
-                <div className="flex justify-between text-xs text-white/40 mt-3 font-mono">
+                <div className="flex justify-between text-[10px] text-white/40 mt-3 font-mono tracking-tighter">
                   <span>{formatTime(scrubValue)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
               </div>
 
               {/* Volume */}
-              <div className="mt-8 flex items-center gap-4">
-                <button onClick={toggleMute} className="text-white/60 hover:text-white">
-                  {playerState.volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                </button>
-                <div className="flex-1 relative h-1 bg-white/10 rounded-full">
+              <div className="mt-6 flex items-center gap-4 px-2">
+                <motion.button whileTap={{ scale: 0.8 }} onClick={toggleMute} className="text-white/60 hover:text-white">
+                  {playerState.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                </motion.button>
+                <div className="flex-1 relative h-1 bg-white/10 rounded-full overflow-hidden">
                   <div 
-                    className="absolute h-full bg-white/60 rounded-full"
+                    className="absolute h-full bg-white/40 rounded-full"
                     style={{ width: `${playerState.volume * 100}%` }}
                   />
                   <input
@@ -275,41 +282,57 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               </div>
 
               {/* Main Controls */}
-              <div className="flex items-center justify-between mt-10">
-                <button onClick={toggleShuffle} className="p-2">
+              <div className="flex items-center justify-between mt-8">
+                <motion.button whileTap={{ scale: 0.8 }} onClick={toggleShuffle} className="p-2">
                   <Shuffle size={20} className={playerState.shuffle ? 'text-green-400' : 'text-white/30'} />
-                </button>
+                </motion.button>
 
-                <div className="flex items-center gap-8">
-                  <button onClick={prevTrack} className="active:scale-90 transition-transform">
-                    <SkipBack size={36} fill="white" />
-                  </button>
-                  <button 
-                    onClick={togglePlay} 
-                    className="w-20 h-20 bg-white rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                <div className="flex items-center gap-6">
+                  <motion.button 
+                    whileTap={{ scale: 0.9 }} 
+                    onClick={prevTrack} 
+                    className="text-white"
                   >
-                    {playerState.isPlaying ? <Pause fill="black" size={32} /> : <Play fill="black" size={32} className="ml-1" />}
-                  </button>
-                  <button onClick={nextTrack} className="active:scale-90 transition-transform">
-                    <SkipForward size={36} fill="white" />
-                  </button>
+                    <SkipBack size={32} fill="currentColor" />
+                  </motion.button>
+                  
+                  <motion.button 
+                    whileTap={{ scale: 0.95 }}
+                    onClick={togglePlay} 
+                    className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-xl"
+                  >
+                    {playerState.isPlaying ? 
+                        <Pause fill="black" size={28} className="text-black" /> : 
+                        <Play fill="black" size={28} className="ml-1 text-black" />
+                    }
+                  </motion.button>
+
+                  <motion.button 
+                    whileTap={{ scale: 0.9 }} 
+                    onClick={nextTrack} 
+                    className="text-white"
+                  >
+                    <SkipForward size={32} fill="currentColor" />
+                  </motion.button>
                 </div>
 
-                <button onClick={toggleRepeat} className="p-2 relative">
+                <motion.button whileTap={{ scale: 0.8 }} onClick={toggleRepeat} className="p-2 relative">
                   <Repeat size={20} className={playerState.repeat !== 'OFF' ? 'text-green-400' : 'text-white/30'} />
                   {playerState.repeat === 'ONE' && (
                     <span className="absolute top-1 right-1 text-[8px] bg-green-400 text-black font-bold px-0.5 rounded-sm">1</span>
                   )}
-                </button>
+                </motion.button>
               </div>
 
-              <div className="flex justify-center mt-8">
-                <button 
+              <div className="flex justify-center mt-6">
+                <motion.button 
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setShowQueue(!showQueue)}
-                  className="p-3 bg-white/10 rounded-full hover:bg-white/20"
+                  className="p-3 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
                 >
                   {showQueue ? <ChevronDown /> : <ListMusic />}
-                </button>
+                </motion.button>
               </div>
             </div>
           </main>
