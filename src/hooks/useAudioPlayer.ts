@@ -91,6 +91,7 @@ export const useAudioPlayer = (
     if (!audioElement) return;
 
     try {
+      // 1. Update State synchronously
       setPlayer(prev => {
         let newQueue = prev.queue;
         let newOriginalQueue = prev.originalQueue;
@@ -139,29 +140,41 @@ export const useAudioPlayer = (
         };
       });
 
+      // 2. Handle Audio Source & Playback
       if (immediate) {
-        let audioBlob = preloadedBlob;
-        if (!audioBlob) {
-          audioBlob = await dbService.getAudioBlob(trackId);
-        }
+        // If we have a preloaded blob, use it synchronously
+        if (preloadedBlob) {
+             if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
+             const url = URL.createObjectURL(preloadedBlob);
+             currentUrlRef.current = url;
 
-        if (!audioBlob) {
-          console.error(`Audio blob not found for ${trackId}`);
-          return;
-        }
+             audioElement.src = url;
+             audioElement.currentTime = 0;
+             try {
+                await audioElement.play();
+             } catch (err) {
+                 console.warn("Autoplay (preloaded) prevented:", err);
+                 setPlayer(p => ({ ...p, isPlaying: false }));
+             }
+        } else {
+             // Fallback to async fetch (might block on iOS if not triggered by user)
+             const blob = await dbService.getAudioBlob(trackId);
+             if (blob) {
+                 if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
+                 const url = URL.createObjectURL(blob);
+                 currentUrlRef.current = url;
 
-        if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
-        const url = URL.createObjectURL(audioBlob);
-        currentUrlRef.current = url;
-        
-        audioElement.src = url;
-        audioElement.currentTime = 0;
-        
-        try {
-            await audioElement.play();
-        } catch (err) {
-            console.warn("Autoplay prevented:", err);
-            setPlayer(p => ({ ...p, isPlaying: false }));
+                 audioElement.src = url;
+                 audioElement.currentTime = 0;
+                 try {
+                    await audioElement.play();
+                 } catch (err) {
+                     console.warn("Autoplay (fetched) prevented:", err);
+                     setPlayer(p => ({ ...p, isPlaying: false }));
+                 }
+             } else {
+                 console.error(`Audio blob not found for ${trackId}`);
+             }
         }
       }
 

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
+import QueueList from './QueueList';
 
 // Helper to format time (mm:ss)
 const formatTime = (seconds: number) => {
@@ -66,6 +67,12 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
+  const scrubValueRef = React.useRef(scrubValue);
+
+  // Keep ref in sync for global listeners
+  useEffect(() => {
+    scrubValueRef.current = scrubValue;
+  }, [scrubValue]);
 
   const safeDuration = Math.max(duration, 0.01);
   const dragControls = useDragControls();
@@ -138,10 +145,23 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   };
 
   // Fixed: Handles both Mouse and Touch end events
-  const handleSeekCommit = () => {
+  const handleSeekCommit = React.useCallback(() => {
     setIsScrubbing(false);
-    handleSeek(scrubValue);
-  };
+    handleSeek(scrubValueRef.current);
+  }, [handleSeek]);
+
+  // Global pointer up to catch drags ending outside the input
+  useEffect(() => {
+    if (isScrubbing) {
+      const onEnd = () => handleSeekCommit();
+      window.addEventListener('pointerup', onEnd, { once: true });
+      window.addEventListener('touchend', onEnd, { once: true });
+      return () => {
+        window.removeEventListener('pointerup', onEnd);
+        window.removeEventListener('touchend', onEnd);
+      };
+    }
+  }, [isScrubbing, handleSeekCommit]);
 
   // --- Fetch Tracks ---
   useEffect(() => {
@@ -167,6 +187,34 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     const next = modes[(modes.indexOf(playerState.repeat) + 1) % modes.length];
     setPlayerState(p => ({ ...p, repeat: next }));
     dbService.setSetting('repeat', next);
+  };
+
+  const handleReorder = (newQueue: string[]) => {
+    setPlayerState(prev => ({ ...prev, queue: newQueue }));
+  };
+
+  const handleQueuePlayNext = (trackId: string) => {
+    setPlayerState(prev => {
+      // Logic: remove track from current pos (if in future) and insert after current
+      const q = [...prev.queue];
+      const currentIdx = q.indexOf(prev.currentTrackId || '');
+      // If track is already in queue, we might want to move it?
+      // Simple approach: insert after current. Duplicates handled by unique keys in QueueList if we allow them.
+      // But typically we remove the old instance if it's "move to play next"
+
+      const existingIdx = q.indexOf(trackId);
+      if (existingIdx !== -1) {
+        q.splice(existingIdx, 1);
+      }
+
+      // Re-find current index as it might have shifted
+      let newCurrentIdx = q.indexOf(prev.currentTrackId || '');
+      if (newCurrentIdx === -1) newCurrentIdx = 0;
+
+      q.splice(newCurrentIdx + 1, 0, trackId);
+
+      return { ...prev, queue: q };
+    });
   };
 
   if (!currentTrack) return null;
@@ -242,7 +290,16 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     exit={{ opacity: 0, scale: 0.95 }}
                     className="absolute inset-0 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden flex flex-col"
                   >
-                    <div className="p-4 text-center text-white/50">Queue Component Here</div>
+                    <QueueList
+                      queue={playerState.queue}
+                      currentTrackId={playerState.currentTrackId}
+                      tracks={tracks}
+                      onReorder={handleReorder}
+                      onPlay={(id) => playTrack(id, { fromQueue: true })}
+                      onRemove={onRemoveTrack || (() => {})}
+                      onPlayNext={handleQueuePlayNext}
+                      onClose={() => setShowQueue(false)}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>
