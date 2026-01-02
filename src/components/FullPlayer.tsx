@@ -160,10 +160,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     if (isScrubbing) {
       const onEnd = () => handleSeekCommit();
       window.addEventListener('pointerup', onEnd, { once: true });
-      window.addEventListener('touchend', onEnd, { once: true });
       return () => {
         window.removeEventListener('pointerup', onEnd);
-        window.removeEventListener('touchend', onEnd);
       };
     }
   }, [isScrubbing, handleSeekCommit]);
@@ -358,12 +356,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                       e.stopPropagation();
                       setIsScrubbing(true);
                     }}
-                    onTouchStart={(e) => {
-                      e.stopPropagation();
-                      setIsScrubbing(true);
-                    }}
                     onPointerUp={handleSeekCommit}
-                    onTouchEnd={handleSeekCommit}
                     className="absolute inset-0 w-full h-6 -top-2.5 opacity-0 cursor-pointer z-50"
                   />
                 </div>

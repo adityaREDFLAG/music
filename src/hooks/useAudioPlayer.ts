@@ -271,7 +271,12 @@ export const useAudioPlayer = (
   useEffect(() => {
       if (!audioElement) return;
 
-      const onTimeUpdate = () => setCurrentTime(audioElement.currentTime);
+      const onTimeUpdate = () => {
+          if (!audioElement.seeking) {
+              setCurrentTime(audioElement.currentTime);
+          }
+      };
+      const onSeeked = () => setCurrentTime(audioElement.currentTime);
       const onDurationChange = () => {
          const d = audioElement.duration;
          setDuration(!isNaN(d) && isFinite(d) ? d : 0);
@@ -288,6 +293,7 @@ export const useAudioPlayer = (
       const onPlay = () => setPlayer(p => ({ ...p, isPlaying: true }));
 
       audioElement.addEventListener('timeupdate', onTimeUpdate);
+      audioElement.addEventListener('seeked', onSeeked);
       audioElement.addEventListener('loadedmetadata', onDurationChange);
       audioElement.addEventListener('ended', onEnded);
       audioElement.addEventListener('pause', onPause);
@@ -295,6 +301,7 @@ export const useAudioPlayer = (
 
       return () => {
           audioElement.removeEventListener('timeupdate', onTimeUpdate);
+          audioElement.removeEventListener('seeked', onSeeked);
           audioElement.removeEventListener('loadedmetadata', onDurationChange);
           audioElement.removeEventListener('ended', onEnded);
           audioElement.removeEventListener('pause', onPause);
