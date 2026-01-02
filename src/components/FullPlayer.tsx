@@ -71,6 +71,10 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
 
+  // -- Volume State --
+  const [isVolumeScrubbing, setIsVolumeScrubbing] = useState(false);
+  const [localVolume, setLocalVolume] = useState(playerState.volume);
+
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
@@ -82,12 +86,19 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     dragY.set(0);
   }, [isPlayerOpen]);
 
-  // Sync state only if NOT scrubbing
+  // Sync seek state only if NOT scrubbing
   useEffect(() => {
     if (!isScrubbing) {
       setScrubValue(currentTime);
     }
   }, [currentTime, isScrubbing]);
+
+  // Sync volume state only if NOT scrubbing
+  useEffect(() => {
+    if (!isVolumeScrubbing) {
+      setLocalVolume(playerState.volume);
+    }
+  }, [playerState.volume, isVolumeScrubbing]);
 
   useEffect(() => {
     if (!isPlayerOpen) return;
@@ -111,31 +122,81 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   // --- SEEK LOGIC ---
 
-  // 1. User starts dragging: lock updates
   const handleScrubStart = () => {
     setIsScrubbing(true);
   };
 
-  // 2. User moves slider: update local visual state only
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Ensure we are in scrubbing mode
     if (!isScrubbing) setIsScrubbing(true);
     setScrubValue(Number(e.target.value));
   };
 
-  // 3. User releases slider: commit seek
   const handleScrubEnd = () => {
-    handleSeek(scrubValue);
-    // Defer releasing lock to ensure next timeupdate doesn't jump back
-    setTimeout(() => {
-      setIsScrubbing(false);
-    }, 100);
+    if (isScrubbing) {
+      handleSeek(scrubValue);
+      // Small delay to prevent the immediate next timeupdate from jumping back
+      setTimeout(() => {
+        setIsScrubbing(false);
+      }, 100);
+    }
   };
+
+  // Attach global pointer up when scrubbing to catch release outside
+  useEffect(() => {
+    if (isScrubbing) {
+      const onGlobalPointerUp = () => {
+         handleScrubEnd();
+      };
+      window.addEventListener('pointerup', onGlobalPointerUp);
+      return () => {
+        window.removeEventListener('pointerup', onGlobalPointerUp);
+      };
+    }
+  }, [isScrubbing, scrubValue]);
+
+
+  // --- VOLUME LOGIC ---
+
+  const handleVolumeStart = () => {
+    setIsVolumeScrubbing(true);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    setLocalVolume(val);
+    if (!isVolumeScrubbing) setIsVolumeScrubbing(true);
+    // We update the audio immediately even during drag for responsiveness
+    onVolumeChange(val);
+  };
+
+  const handleVolumeEnd = () => {
+    if (isVolumeScrubbing) {
+       // Ensure final value is committed
+       onVolumeChange(localVolume);
+       setIsVolumeScrubbing(false);
+    }
+  };
+
+  // Attach global pointer up for volume too
+  useEffect(() => {
+    if (isVolumeScrubbing) {
+      const onGlobalPointerUp = () => {
+         handleVolumeEnd();
+      };
+      window.addEventListener('pointerup', onGlobalPointerUp);
+      return () => {
+        window.removeEventListener('pointerup', onGlobalPointerUp);
+      };
+    }
+  }, [isVolumeScrubbing, localVolume]);
+
 
   // Calculate max once to ensure stability
   const maxDuration = Math.max(duration, 0.01);
   const sliderValue = isScrubbing ? scrubValue : currentTime;
   const progressPercent = (sliderValue / maxDuration) * 100;
+
+  const displayVolume = isVolumeScrubbing ? localVolume : playerState.volume;
 
   return (
     <AnimatePresence>
@@ -286,11 +347,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     value={sliderValue}
                     onChange={handleScrubChange}
                     onPointerDown={handleScrubStart}
-                    onMouseDown={handleScrubStart}
-                    onTouchStart={handleScrubStart}
-                    onPointerUp={handleScrubEnd}
-                    onMouseUp={handleScrubEnd}
-                    onTouchEnd={handleScrubEnd}
                     className="absolute inset-0 opacity-0 w-full h-4 -top-1.5 cursor-pointer touch-none"
                   />
                 </div>
@@ -304,24 +360,25 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               {/* Volume Slider */}
               <div className="mt-6 flex items-center gap-4 px-2" onPointerDown={(e) => e.stopPropagation()}>
                 <button
-                   onClick={() => onVolumeChange(playerState.volume === 0 ? 1 : 0)}
+                   onClick={() => onVolumeChange(displayVolume === 0 ? 1 : 0)}
                    className="text-white/50 hover:text-white transition-colors"
                 >
-                    {playerState.volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                    {displayVolume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
                 </button>
                 <div className="flex-1 relative h-1 bg-white/10 rounded-full group cursor-pointer">
                    <div
-                        className="absolute h-full bg-white/50 group-hover:bg-white rounded-full transition-colors"
-                        style={{ width: `${playerState.volume * 100}%` }}
+                        className="absolute h-full bg-white/50 group-hover:bg-white rounded-full transition-colors pointer-events-none"
+                        style={{ width: `${displayVolume * 100}%` }}
                    />
                    <input
                         type="range"
                         min="0"
                         max="1"
                         step="0.01"
-                        value={playerState.volume}
-                        onChange={(e) => onVolumeChange(Number(e.target.value))}
-                        className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer"
+                        value={displayVolume}
+                        onChange={handleVolumeChange}
+                        onPointerDown={handleVolumeStart}
+                        className="absolute inset-0 w-full h-4 -top-1.5 opacity-0 cursor-pointer touch-none"
                    />
                 </div>
               </div>
