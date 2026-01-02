@@ -15,10 +15,12 @@ import {
   Repeat,
   ListMusic,
   ChevronDown,
+  Mic2,
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
 import QueueList from './QueueList';
+import LyricsView from './LyricsView';
 
 // Helper to format time (mm:ss)
 const formatTime = (seconds: number) => {
@@ -64,6 +66,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   onRemoveTrack,
 }) => {
   const [showQueue, setShowQueue] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(false);
   const [tracks, setTracks] = useState<Record<string, Track>>({});
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
@@ -268,23 +271,22 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             {/* Left: Artwork */}
             <div className="w-full max-w-[360px] landscape:max-w-[400px] aspect-square relative flex items-center justify-center">
               <AnimatePresence mode="wait">
-                {!showQueue ? (
+                {showLyrics ? (
                   <motion.div
-                    key="art"
-                    layoutId="albumArt"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: playerState.isPlaying ? 1 : 0.95 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.3 }}
-                    className="relative w-full h-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden"
+                     key="lyrics"
+                     initial={{ opacity: 0, scale: 0.95 }}
+                     animate={{ opacity: 1, scale: 1 }}
+                     exit={{ opacity: 0, scale: 0.95 }}
+                     className="absolute inset-0 rounded-2xl overflow-hidden"
                   >
-                     <img
-                      src={currentTrack.coverArt}
-                      className="w-full h-full object-cover"
-                      alt="Album Art"
-                    />
+                     <LyricsView
+                       track={currentTrack}
+                       currentTime={currentTime}
+                       onSeek={handleSeek}
+                       onClose={() => setShowLyrics(false)}
+                     />
                   </motion.div>
-                ) : (
+                ) : showQueue ? (
                   <motion.div
                     key="queue"
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -301,6 +303,22 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                       onRemove={onRemoveTrack || (() => {})}
                       onPlayNext={handleQueuePlayNext}
                       onClose={() => setShowQueue(false)}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="art"
+                    layoutId="albumArt"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: playerState.isPlaying ? 1 : 0.95 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.3 }}
+                    className="relative w-full h-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden"
+                  >
+                     <img
+                      src={currentTrack.coverArt}
+                      className="w-full h-full object-cover"
+                      alt="Album Art"
                     />
                   </motion.div>
                 )}
@@ -395,10 +413,23 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 </button>
               </div>
 
-              {/* Bottom Row (Queue Only - Volume Removed) */}
-              <div className="flex items-center justify-end mt-4">
+              {/* Bottom Row (Queue & Lyrics) */}
+              <div className="flex items-center justify-between mt-4 px-1">
+                <button
+                  onClick={() => {
+                    setShowLyrics(!showLyrics);
+                    if (!showLyrics) setShowQueue(false);
+                  }}
+                  className={`p-2.5 rounded-full transition-all ${showLyrics ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                >
+                  <Mic2 size={20} />
+                </button>
+
                 <button 
-                  onClick={() => setShowQueue(!showQueue)}
+                  onClick={() => {
+                    setShowQueue(!showQueue);
+                    if (!showQueue) setShowLyrics(false);
+                  }}
                   className={`p-2.5 rounded-full transition-all ${showQueue ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
                 >
                   {showQueue ? <ChevronDown size={20} /> : <ListMusic size={20} />}
