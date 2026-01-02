@@ -15,41 +15,11 @@ import {
   Repeat,
   ListMusic,
   ChevronDown,
-  Volume2,
-  VolumeX,
+  X,
+  GripVertical,
 } from 'lucide-react';
-
-// Mock types (replace with your actual types)
-interface Track {
-  id: string;
-  title: string;
-  artist: string;
-  coverArt: string;
-}
-
-interface PlayerState {
-  isPlaying: boolean;
-  volume: number;
-  shuffle: boolean;
-  repeat: 'OFF' | 'ALL' | 'ONE';
-  queue: string[];
-}
-
-type RepeatMode = 'OFF' | 'ALL' | 'ONE';
-
-// Mock QueueList component
-const QueueList: React.FC<any> = ({ onClose }) => (
-  <div className="p-4">
-    <button onClick={onClose} className="text-white">Close Queue</button>
-  </div>
-);
-
-// Mock dbService
-const dbService = {
-  getAllTracks: async () => [] as Track[],
-  getSetting: async (key: string) => null,
-  setSetting: async (key: string, value: any) => {},
-};
+import { Track, PlayerState, RepeatMode } from '../types';
+import { dbService } from '../db';
 
 interface FullPlayerProps {
   currentTrack: Track | null;
@@ -75,6 +45,122 @@ const formatTime = (time: number) => {
   const m = Math.floor(time / 60);
   const s = Math.floor(time % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+// Proper QueueList Component
+const QueueList: React.FC<{
+  queue: string[];
+  currentTrackId: string;
+  tracks: Record<string, Track>;
+  onPlay: (id: string) => void;
+  onRemove: (id: string) => void;
+  onReorder: (queue: string[]) => void;
+  onClose: () => void;
+}> = ({ queue, currentTrackId, tracks, onPlay, onRemove, onReorder, onClose }) => {
+  const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [dragOverItem, setDragOverItem] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, trackId: string) => {
+    setDraggedItem(trackId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, trackId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverItem(trackId);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedItem || draggedItem === targetId) return;
+
+    const newQueue = [...queue];
+    const draggedIndex = newQueue.indexOf(draggedItem);
+    const targetIndex = newQueue.indexOf(targetId);
+
+    newQueue.splice(draggedIndex, 1);
+    newQueue.splice(targetIndex, 0, draggedItem);
+
+    onReorder(newQueue);
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between p-4 border-b border-white/10">
+        <h2 className="text-white text-lg font-semibold">Queue ({queue.length})</h2>
+        <button onClick={onClose} className="text-white/60 hover:text-white transition-colors">
+          <X size={20} />
+        </button>
+      </div>
+      
+      <div className="flex-1 overflow-y-auto">
+        {queue.map((trackId) => {
+          const track = tracks[trackId];
+          if (!track) return null;
+          
+          const isPlaying = trackId === currentTrackId;
+          const isDragging = draggedItem === trackId;
+          const isDragOver = dragOverItem === trackId;
+
+          return (
+            <div
+              key={trackId}
+              draggable
+              onDragStart={(e) => handleDragStart(e, trackId)}
+              onDragOver={(e) => handleDragOver(e, trackId)}
+              onDrop={(e) => handleDrop(e, trackId)}
+              onDragEnd={handleDragEnd}
+              className={`flex items-center gap-3 p-3 border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${
+                isPlaying ? 'bg-white/10' : ''
+              } ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-t-white' : ''}`}
+              onClick={() => onPlay(trackId)}
+            >
+              <div className="cursor-grab active:cursor-grabbing text-white/30">
+                <GripVertical size={16} />
+              </div>
+              
+              <img
+                src={track.coverArt}
+                alt={track.title}
+                className="w-12 h-12 rounded object-cover"
+              />
+              
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-medium truncate ${isPlaying ? 'text-green-400' : 'text-white'}`}>
+                  {track.title}
+                </div>
+                <div className="text-xs text-white/50 truncate">{track.artist}</div>
+              </div>
+
+              {isPlaying && (
+                <div className="text-green-400">
+                  <Play size={16} fill="currentColor" />
+                </div>
+              )}
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(trackId);
+                }}
+                className="text-white/30 hover:text-red-400 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 const FullPlayer: React.FC<FullPlayerProps> = ({
@@ -207,14 +293,16 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     }
   };
 
-  const onScrubComplete = (val: number) => {
-    handleSeek(val);
-    setIsScrubbing(false);
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Number(e.target.value);
+    setScrubValue(value);
+    if (isScrubbing) {
+      handleSeek(value);
+    }
   };
 
-  const toggleMute = () => {
-    const newVolume = playerState.volume === 0 ? 0.8 : 0;
-    onVolumeChange(newVolume);
+  const handleSeekPointerUp = () => {
+    setIsScrubbing(false);
   };
 
   return (
@@ -323,6 +411,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 </motion.div>
               )}
 
+              {/* Progress Slider - FIXED */}
               <div className="mt-4">
                 <div className="relative h-1.5 bg-white/10 rounded-full group">
                   <motion.div 
@@ -335,10 +424,13 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     max={safeDuration}
                     step={0.1}
                     value={scrubValue}
-                    onChange={(e) => setScrubValue(Number(e.target.value))}
-                    onPointerDown={handlePointerDown}
-                    onPointerUp={(e) => onScrubComplete(Number((e.target as HTMLInputElement).value))}
-                    className="absolute inset-0 opacity-0 w-full h-8 -top-3 cursor-pointer touch-none"
+                    onChange={handleSeekChange}
+                    onMouseDown={handlePointerDown}
+                    onTouchStart={handlePointerDown}
+                    onMouseUp={handleSeekPointerUp}
+                    onTouchEnd={handleSeekPointerUp}
+                    className="absolute inset-0 opacity-0 w-full h-8 -top-3 cursor-pointer"
+                    style={{ touchAction: 'none' }}
                   />
                 </div>
                 <div className="flex justify-between text-[10px] text-white/40 mt-3 font-mono">
@@ -347,32 +439,21 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                 </div>
               </div>
 
-              <div className="mt-6 flex items-center justify-between px-2">
-                <div className="flex items-center gap-4 flex-1">
-                  <motion.button whileTap={{ scale: 0.8 }} onClick={toggleMute} className="text-white/60">
-                    {playerState.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                  </motion.button>
-                  <div className="flex-1 max-w-[120px] relative h-1 bg-white/10 rounded-full">
-                    <div className="absolute h-full bg-white/40 rounded-full" style={{ width: `${playerState.volume * 100}%` }} />
-                    <input
-                      type="range" min="0" max="1" step="0.01" value={playerState.volume}
-                      onChange={(e) => onVolumeChange(Number(e.target.value))}
-                      className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                    />
-                  </div>
-                </div>
+              {/* Fade Control - Volume slider REMOVED */}
+              <div className="mt-6 flex items-center justify-center px-2">
                 <button 
                   onClick={() => {
                     const next = !fadeOutEnabled;
                     setFadeOutEnabled(next);
                     dbService.setSetting('fadeOutAtEnd', next);
                   }}
-                  className={`text-[10px] px-2 py-1 rounded border transition-colors ${fadeOutEnabled ? 'bg-white text-black border-white' : 'text-white/40 border-white/20'}`}
+                  className={`text-[10px] px-3 py-1.5 rounded border transition-colors ${fadeOutEnabled ? 'bg-white text-black border-white' : 'text-white/40 border-white/20'}`}
                 >
                   FADE OUT {fadeOutEnabled ? 'ON' : 'OFF'}
                 </button>
               </div>
 
+              {/* Main Controls */}
               <div className="flex items-center justify-between mt-8">
                 <motion.button whileTap={{ scale: 0.8 }} onClick={toggleShuffle} className="p-2">
                   <Shuffle size={20} className={playerState.shuffle ? 'text-green-400' : 'text-white/30'} />
