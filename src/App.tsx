@@ -373,6 +373,7 @@ function MusicApp() {
         themeColor={themeColor}
         toggleShuffle={toggleShuffle}
         onRemoveTrack={handleRemoveFromQueue}
+        tracks={library.tracks}
       />
     </>
   );

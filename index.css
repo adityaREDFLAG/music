@@ -25,13 +25,20 @@
   @apply bg-surface-variant rounded-full hover:bg-outline/50 transition-colors;
 }
 
-.scrollbar-hide::-webkit-scrollbar {
+.scrollbar-hide::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
-.scrollbar-hide {
+.scrollbar-hide,
+.no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.fade-top-mask {
+  mask-image: linear-gradient(to bottom, transparent 0px, black 20px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0px, black 20px);
 }
 
 /* Premium Glassmorphism */

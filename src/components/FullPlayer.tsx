@@ -38,6 +38,7 @@ interface FullPlayerProps {
   onVolumeChange: (volume: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack: (trackId: string) => void;
+  tracks: Record<string, Track>;
 }
 
 const formatTime = (time: number) => {
@@ -63,9 +64,9 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   onVolumeChange,
   toggleShuffle,
   onRemoveTrack,
+  tracks,
 }) => {
   const [showQueue, setShowQueue] = useState(false);
-  const [tracks, setTracks] = useState<Record<string, Track>>({});
    
   // -- Seek State --
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -88,16 +89,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
       setScrubValue(currentTime);
     }
   }, [currentTime, isScrubbing]);
-
-  useEffect(() => {
-    if (!isPlayerOpen) return;
-    (async () => {
-      const all = await dbService.getAllTracks();
-      const map: Record<string, Track> = {};
-      all.forEach(t => (map[t.id] = t));
-      setTracks(map);
-    })();
-  }, [isPlayerOpen]);
 
   if (!currentTrack) return null;
 
