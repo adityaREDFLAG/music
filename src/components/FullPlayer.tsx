@@ -141,7 +141,9 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   }, [currentTime, isScrubbing]);
 
   const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setScrubValue(Number(e.target.value));
+    const value = Number(e.target.value);
+    setScrubValue(value);
+    scrubValueRef.current = value;
   };
 
   // Fixed: Handles both Mouse and Touch end events
