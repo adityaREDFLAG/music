@@ -277,16 +277,37 @@ export const useAudioPlayer = (
   useEffect(() => {
       if (!audioElement) return;
 
+      const updatePositionState = () => {
+          if ('mediaSession' in navigator && !isNaN(audioElement.duration)) {
+              try {
+                  navigator.mediaSession.setPositionState({
+                      duration: audioElement.duration,
+                      playbackRate: audioElement.playbackRate,
+                      position: audioElement.currentTime
+                  });
+              } catch (e) {
+                  // Ignore errors (e.g., duration is Infinity or NaN)
+              }
+          }
+      };
+
       const onTimeUpdate = () => {
           if (!audioElement.seeking) {
               setCurrentTime(audioElement.currentTime);
           }
       };
-      const onSeeked = () => setCurrentTime(audioElement.currentTime);
+
+      const onSeeked = () => {
+          setCurrentTime(audioElement.currentTime);
+          updatePositionState();
+      };
+
       const onDurationChange = () => {
          const d = audioElement.duration;
          setDuration(!isNaN(d) && isFinite(d) ? d : 0);
+         updatePositionState();
       };
+
       const onEnded = () => {
            if (player.repeat === RepeatMode.ONE) {
                audioElement.currentTime = 0;
@@ -301,7 +322,10 @@ export const useAudioPlayer = (
              setPlayer(p => ({ ...p, isPlaying: false }));
           }
       };
-      const onPlay = () => setPlayer(p => ({ ...p, isPlaying: true }));
+      const onPlay = () => {
+          setPlayer(p => ({ ...p, isPlaying: true }));
+          updatePositionState();
+      };
 
       audioElement.addEventListener('timeupdate', onTimeUpdate);
       audioElement.addEventListener('seeked', onSeeked);
@@ -361,6 +385,14 @@ export const useAudioPlayer = (
           });
       }
   }, [togglePlay, prevTrack, nextTrack, handleSeek]);
+
+  // Update Media Metadata whenever currentTrackId changes
+  useEffect(() => {
+      const currentTrack = player.currentTrackId ? libraryTracks[player.currentTrackId] : null;
+      if (currentTrack && 'mediaSession' in navigator) {
+          updateMediaSession(currentTrack);
+      }
+  }, [player.currentTrackId, libraryTracks, updateMediaSession]);
 
   return {
     player,

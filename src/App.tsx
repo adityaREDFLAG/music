@@ -94,6 +94,13 @@ function MusicApp() {
     addToast("Removed from queue", "success");
   }, [setPlayer, addToast]);
 
+  const handleTrackUpdate = useCallback((updatedTrack: Track) => {
+    setLibrary(prev => ({
+      ...prev,
+      tracks: { ...prev.tracks, [updatedTrack.id]: updatedTrack }
+    }));
+  }, []);
+
   // Handle Settings Events (Custom Event Bridge)
   useEffect(() => {
       const handleSettingsUpdate = (e: any) => {
@@ -386,6 +393,7 @@ function MusicApp() {
         themeColor={themeColor}
         toggleShuffle={toggleShuffle}
         onRemoveTrack={handleRemoveFromQueue}
+        onTrackUpdate={handleTrackUpdate}
       />
     </>
   );
