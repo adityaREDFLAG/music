@@ -13,6 +13,7 @@ export interface Track {
   coverArt?: string;
   duration: number;
   addedAt: number;
+  lyrics?: Lyrics;
 }
 
 export interface Playlist {

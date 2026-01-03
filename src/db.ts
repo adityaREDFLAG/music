@@ -33,11 +33,14 @@ export class MusicDB {
     });
   }
 
-  async saveTrack(track: Track, audioBlob: Blob): Promise<void> {
+  async saveTrack(track: Track, audioBlob?: Blob): Promise<void> {
     if (!this.db) return;
-    const tx = this.db.transaction(['tracks', 'blobs'], 'readwrite');
+    const storeNames = audioBlob ? ['tracks', 'blobs'] : ['tracks'];
+    const tx = this.db.transaction(storeNames, 'readwrite');
     tx.objectStore('tracks').put(track);
-    tx.objectStore('blobs').put({ id: track.id, blob: audioBlob });
+    if (audioBlob) {
+        tx.objectStore('blobs').put({ id: track.id, blob: audioBlob });
+    }
     return new Promise((res) => (tx.oncomplete = () => res()));
   }
 

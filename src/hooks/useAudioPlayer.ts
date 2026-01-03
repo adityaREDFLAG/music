@@ -184,17 +184,23 @@ export const useAudioPlayer = (
     }
   }, [libraryTracks, updateMediaSession, audioElement]);
 
+  // WRAP togglePlay to ensure we capture the latest audioElement via closure or ref if needed
+  // Since audioElement is in state, it should be fine, but we need to ensure the event handler has access.
   const togglePlay = useCallback(() => {
     if (!audioElement) return;
 
-    if (player.isPlaying) {
+    if (audioElement.paused) {
+        audioElement.play()
+            .then(() => setPlayer(p => ({ ...p, isPlaying: true })))
+            .catch(err => {
+                console.error("Play failed:", err);
+                setPlayer(p => ({ ...p, isPlaying: false }));
+            });
+    } else {
         audioElement.pause();
         setPlayer(p => ({ ...p, isPlaying: false }));
-    } else {
-        audioElement.play().catch(console.error);
-        setPlayer(p => ({ ...p, isPlaying: true }));
     }
-  }, [player.isPlaying, audioElement]);
+  }, [audioElement]);
 
   const nextTrack = useCallback(() => {
      const currentIndex = player.queue.indexOf(player.currentTrackId || '');
@@ -289,7 +295,12 @@ export const useAudioPlayer = (
                nextTrack();
            }
       };
-      const onPause = () => setPlayer(p => ({ ...p, isPlaying: false }));
+      // We rely on togglePlay to update state, but if external pause happens (e.g. system interrupt)
+      const onPause = () => {
+          if (!audioElement.ended) { // Don't set isPlaying=false if it just ended and is about to play next
+             setPlayer(p => ({ ...p, isPlaying: false }));
+          }
+      };
       const onPlay = () => setPlayer(p => ({ ...p, isPlaying: true }));
 
       audioElement.addEventListener('timeupdate', onTimeUpdate);
@@ -336,8 +347,13 @@ export const useAudioPlayer = (
   // --- MEDIA SESSION ---
   useEffect(() => {
       if ('mediaSession' in navigator) {
-          navigator.mediaSession.setActionHandler('play', togglePlay);
-          navigator.mediaSession.setActionHandler('pause', togglePlay);
+          navigator.mediaSession.setActionHandler('play', () => {
+             // Explicitly use the togglePlay from the closure
+             togglePlay();
+          });
+          navigator.mediaSession.setActionHandler('pause', () => {
+             togglePlay();
+          });
           navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
           navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
           navigator.mediaSession.setActionHandler('seekto', (details) => {

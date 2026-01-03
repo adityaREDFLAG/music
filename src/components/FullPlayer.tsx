@@ -72,6 +72,9 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [scrubValue, setScrubValue] = useState(0);
   const scrubValueRef = React.useRef(scrubValue);
 
+  // Use a timeout to prevent jumping back after seek
+  const ignoreTimeUpdateRef = React.useRef(false);
+
   // Keep ref in sync for global listeners
   useEffect(() => {
     scrubValueRef.current = scrubValue;
@@ -138,7 +141,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   // --- Scrubbing Sync ---
   useEffect(() => {
-    if (!isScrubbing) {
+    if (!isScrubbing && !ignoreTimeUpdateRef.current) {
       setScrubValue(currentTime);
     }
   }, [currentTime, isScrubbing]);
@@ -151,8 +154,18 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   // Fixed: Handles both Mouse and Touch end events
   const handleSeekCommit = React.useCallback(() => {
+    const seekTime = scrubValueRef.current;
+
+    // 1. Perform Seek
+    handleSeek(seekTime);
+
+    // 2. Temporarily ignore updates to prevent jumping back
+    ignoreTimeUpdateRef.current = true;
+    setTimeout(() => {
+        ignoreTimeUpdateRef.current = false;
+    }, 500); // 500ms should be enough for the audio engine to catch up
+
     setIsScrubbing(false);
-    handleSeek(scrubValueRef.current);
   }, [handleSeek]);
 
   // Global pointer up to catch drags ending outside the input

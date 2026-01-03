@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Play, Shuffle, ListFilter, Settings, Trash2, PlusCircle, Loader2, MoreVertical, X } from 'lucide-react';
+import { Music, Play, Shuffle, ListFilter, Settings, Trash2, PlusCircle, Loader2, MoreVertical, X, Mic2, Users, ChevronLeft } from 'lucide-react';
 import { Track, PlayerState, Playlist } from '../types';
 import { dbService } from '../db';
 import Playlists from './Playlists';
@@ -31,6 +31,47 @@ const SkeletonRow = () => (
     <div className="w-8 h-8 rounded-full bg-surface-variant/30" />
   </div>
 );
+
+// --- ARTIST ROW COMPONENT ---
+const ArtistRow = memo(({
+    artist,
+    trackCount,
+    coverArt,
+    onClick
+}: {
+    artist: string;
+    trackCount: number;
+    coverArt?: string;
+    onClick: () => void;
+}) => (
+    <motion.div
+        layout
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={onClick}
+        className="flex items-center gap-4 p-2 rounded-2xl cursor-pointer hover:bg-surface-variant/30 transition-all"
+    >
+        <div className="w-14 h-14 rounded-full overflow-hidden bg-surface-variant flex-shrink-0">
+            {coverArt ? (
+                <img src={coverArt} alt={artist} className="w-full h-full object-cover" loading="lazy" />
+            ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                    <Users className="w-6 h-6 text-on-surface/50" />
+                </div>
+            )}
+        </div>
+        <div className="flex-1 min-w-0">
+            <h3 className="text-base font-semibold truncate text-on-surface">{artist}</h3>
+            <p className="text-sm text-on-surface/60">{trackCount} {trackCount === 1 ? 'Song' : 'Songs'}</p>
+        </div>
+        <div className="w-8 h-8 rounded-full bg-surface-variant/20 flex items-center justify-center">
+            <Play className="w-4 h-4 fill-current text-primary ml-0.5" />
+        </div>
+    </motion.div>
+));
+ArtistRow.displayName = 'ArtistRow';
+
 
 // --- TRACK ROW COMPONENT ---
 const TrackRow = memo(({ 
@@ -212,6 +253,9 @@ const Library: React.FC<LibraryProps> = ({
   const [playlists, setPlaylists] = React.useState<Record<string, Playlist>>({});
   const [tracksMap, setTracksMap] = React.useState<Record<string, Track>>({});
 
+  // Drill Down State for Artists
+  const [selectedArtist, setSelectedArtist] = React.useState<string | null>(null);
+
   // Sorting
   const [sortOption, setSortOption] = React.useState<'added' | 'title' | 'artist'>('added');
 
@@ -230,6 +274,24 @@ const Library: React.FC<LibraryProps> = ({
     };
     load();
   }, [activeTab, libraryTab, refreshLibrary]);
+
+  // Derived Artists List
+  const artistsList = React.useMemo(() => {
+    const map = new Map<string, { count: number; cover?: string }>();
+    filteredTracks.forEach(t => {
+        const artist = t.artist || 'Unknown Artist';
+        const current = map.get(artist) || { count: 0 };
+        map.set(artist, {
+            count: current.count + 1,
+            cover: current.cover || t.coverArt // use first available cover
+        });
+    });
+    return Array.from(map.entries()).map(([name, data]) => ({
+        name,
+        count: data.count,
+        cover: data.cover
+    })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredTracks]);
 
   const handleDelete = (id: string) => {
     if(confirm('Delete track permanently?')) {
@@ -283,6 +345,11 @@ const Library: React.FC<LibraryProps> = ({
       setIsPlaylistModalOpen(false);
       setTrackToAddId(null);
   };
+
+  // Reset selected artist when tab changes
+  React.useEffect(() => {
+      if (libraryTab !== 'Artists') setSelectedArtist(null);
+  }, [libraryTab]);
 
   return (
     <>
@@ -391,6 +458,58 @@ const Library: React.FC<LibraryProps> = ({
                         />
                     ))}
                 </div>
+                )}
+
+                {libraryTab === 'Artists' && (
+                    selectedArtist ? (
+                        <motion.div
+                            key="artist-songs"
+                            initial={{ x: 20, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            exit={{ x: -20, opacity: 0 }}
+                            className="flex flex-col gap-2"
+                        >
+                            <div className="flex items-center gap-2 mb-4">
+                                <button
+                                    onClick={() => setSelectedArtist(null)}
+                                    className="p-2 rounded-full hover:bg-surface-variant transition-colors"
+                                >
+                                    <ChevronLeft className="w-6 h-6 text-on-surface" />
+                                </button>
+                                <h2 className="text-xl font-bold text-on-surface">{selectedArtist}</h2>
+                            </div>
+
+                            {filteredTracks
+                                .filter(t => t.artist === selectedArtist)
+                                .map((track, i) => (
+                                    <TrackRow
+                                        key={track.id}
+                                        track={track}
+                                        index={i}
+                                        onPlay={(id) => playTrack(id, {
+                                            customQueue: filteredTracks.filter(t => t.artist === selectedArtist).map(t => t.id)
+                                        })}
+                                        isPlaying={playerState.isPlaying}
+                                        isCurrentTrack={playerState.currentTrackId === track.id}
+                                        onDelete={handleDelete}
+                                        onAddToPlaylist={handleAddToPlaylistClick}
+                                    />
+                                ))
+                            }
+                        </motion.div>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                             {artistsList.map((artist) => (
+                                 <ArtistRow
+                                     key={artist.name}
+                                     artist={artist.name}
+                                     trackCount={artist.count}
+                                     coverArt={artist.cover}
+                                     onClick={() => setSelectedArtist(artist.name)}
+                                 />
+                             ))}
+                        </div>
+                    )
                 )}
 
                 {libraryTab === 'Playlists' && (

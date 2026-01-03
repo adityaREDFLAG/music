@@ -25,12 +25,20 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek }) =
   useEffect(() => {
     let mounted = true;
     const load = async () => {
+      // If the track already has lyrics, use them
+      if (track.lyrics && !track.lyrics.error) {
+        setLyrics(track.lyrics);
+        setLoading(false);
+        setActiveLineIndex(-1);
+        return;
+      }
+
       setLoading(true);
       setLyrics(null);
       setActiveLineIndex(-1);
 
       try {
-        const data = await fetchLyrics(track.title, track.artist);
+        const data = await fetchLyrics(track);
         if (mounted) {
           setLyrics(data);
         }
@@ -42,7 +50,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek }) =
     };
     load();
     return () => { mounted = false; };
-  }, [track.title, track.artist]);
+  }, [track]);
 
   // Sync Active Line
   useEffect(() => {
