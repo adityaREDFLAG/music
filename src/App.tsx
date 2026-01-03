@@ -79,6 +79,9 @@ function MusicApp() {
     nextTrack,
     prevTrack,
     handleSeek,
+    startScrub,
+    scrub,
+    endScrub,
     setVolume,
     toggleShuffle,
     playTrack,
@@ -426,6 +429,9 @@ function MusicApp() {
         currentTime={currentTime}
         duration={duration}
         handleSeek={handleSeek}
+        startScrub={startScrub}
+        scrub={scrub}
+        endScrub={endScrub}
         onVolumeChange={setVolume}
         theme={theme}
         toggleShuffle={toggleShuffle}

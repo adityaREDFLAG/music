@@ -47,6 +47,9 @@ interface FullPlayerProps {
   currentTime: number;
   duration: number;
   handleSeek: (time: number) => void;
+  startScrub?: () => void;
+  scrub?: (time: number) => void;
+  endScrub?: () => void;
   onVolumeChange?: (volume: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack?: (id: string) => void;
@@ -69,6 +72,9 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   currentTime,
   duration,
   handleSeek,
+  startScrub,
+  scrub,
+  endScrub,
   toggleShuffle,
   onRemoveTrack,
   onTrackUpdate,
@@ -78,9 +84,11 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [showQueue, setShowQueue] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [tracks, setTracks] = useState<Record<string, Track>>({});
-  const [isScrubbing, setIsScrubbing] = useState(false);
-  const [scrubValue, setScrubValue] = useState(0);
-  const scrubValueRef = React.useRef(scrubValue);
+
+  // Local state for the slider to ensure immediate feedback
+  // When scrubbing, this is the source of truth for the slider position
+  const [localScrubValue, setLocalScrubValue] = useState<number | null>(null);
+  const isScrubbing = localScrubValue !== null;
 
   // Use props directly
   const { beat } = analyzerData || { beat: false };
@@ -108,49 +116,44 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
       }
   }, [beat, beatScale, glowOpacity, isPlayerOpen]);
 
-  // Use a timeout to prevent jumping back after seek
-  const ignoreTimeUpdateRef = React.useRef(false);
-
-  // Keep ref in sync for global listeners
-  useEffect(() => {
-    scrubValueRef.current = scrubValue;
-  }, [scrubValue]);
-
   const safeDuration = Math.max(duration, 0.01);
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
 
-  // --- Scrubbing Sync ---
-  useEffect(() => {
-    if (!isScrubbing && !ignoreTimeUpdateRef.current) {
-      setScrubValue(currentTime);
-    }
-  }, [currentTime, isScrubbing]);
+  // Display value: Use local value while scrubbing, otherwise global currentTime
+  const displayValue = isScrubbing ? localScrubValue : currentTime;
 
-  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
-    const value = Number((e.target as HTMLInputElement).value);
-    setScrubValue(value);
-    scrubValueRef.current = value;
+  // --- SCRUBBING HANDLERS ---
+  const handleScrubStart = () => {
+      if (startScrub) startScrub();
+      // Initialize local value to current time to start dragging smoothly
+      setLocalScrubValue(currentTime);
   };
 
-  const handleSeekCommit = React.useCallback(() => {
-    const seekTime = scrubValueRef.current;
-    
-    // Extra validation: ensure we have a valid time to seek to
-    if (isNaN(seekTime) || seekTime < 0) {
-      console.warn('Invalid seek time:', seekTime);
-      setIsScrubbing(false);
-      return;
-    }
-    
-    handleSeek(seekTime);
-    ignoreTimeUpdateRef.current = true;
-    setTimeout(() => {
-        ignoreTimeUpdateRef.current = false;
-    }, 500);
-    setIsScrubbing(false);
-  }, [handleSeek]);
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+      const value = Number((e.target as HTMLInputElement).value);
+
+      // Update local state for slider UI
+      setLocalScrubValue(value);
+
+      // Update Audio immediately
+      if (scrub) {
+          scrub(value);
+      } else {
+          // Fallback if no scrub prop (should not happen with updated parent)
+          handleSeek(value);
+      }
+  };
+
+  const handleScrubEnd = () => {
+      // Commit final value if needed, but scrub() already did it.
+      if (endScrub) endScrub();
+
+      // Clear local state so we fallback to currentTime prop
+      // We expect currentTime to match localScrubValue now.
+      setLocalScrubValue(null);
+  };
 
   useEffect(() => {
     if (!isPlayerOpen) return;
@@ -349,7 +352,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                   <motion.div
                     animate={{ backgroundColor: primaryColor }}
                     className="absolute h-full rounded-full pointer-events-none origin-left"
-                    style={{ width: `${(scrubValue / safeDuration) * 100}%`, willChange: 'width' }}
+                    style={{ width: `${(displayValue / safeDuration) * 100}%`, willChange: 'width' }}
                   />
                   {/* Beat Pulse Overlay on Bar */}
                   {playerState.isPlaying && (
@@ -365,31 +368,44 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     type="range"
                     min={0}
                     max={safeDuration}
-                    step={0.1}
-                    value={scrubValue}
-                    onChange={handleSeekChange}
-                    onInput={handleSeekChange}
+                    step={0.1} // High resolution for smooth dragging
+                    value={displayValue}
+                    onChange={handleScrubChange}
+                    onInput={handleScrubChange}
+
+                    // Mouse Events
                     onMouseDown={(e) => {
-                      e.stopPropagation();
-                      setIsScrubbing(true);
+                        e.stopPropagation();
+                        handleScrubStart();
                     }}
+                    onMouseUp={(e) => {
+                        handleScrubEnd();
+                    }}
+
+                    // Touch Events
                     onTouchStart={(e) => {
-                      e.stopPropagation();
-                      setIsScrubbing(true);
+                        e.stopPropagation();
+                        handleScrubStart();
                     }}
-                    onMouseUp={handleSeekCommit}
-                    onTouchEnd={handleSeekCommit}
+                    onTouchEnd={(e) => {
+                        handleScrubEnd();
+                    }}
+
+                    // Pointer Events (Catch-all)
                     onPointerDown={(e) => {
-                      e.stopPropagation();
-                      setIsScrubbing(true);
+                        e.stopPropagation();
+                        handleScrubStart();
                     }}
-                    onPointerUp={handleSeekCommit}
+                    onPointerUp={(e) => {
+                        handleScrubEnd();
+                    }}
+
                     className="absolute -inset-x-0 -top-2.5 w-full h-6 opacity-0 cursor-pointer z-50"
                     style={{ pointerEvents: 'auto', bottom: '-8px' }}
                   />
 
                 <div className="flex justify-between mt-2 text-xs font-medium font-mono" style={{ color: mutedColor }}>
-                  <span>{formatTime(scrubValue)}</span>
+                  <span>{formatTime(displayValue)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
               </div>
