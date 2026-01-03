@@ -31,7 +31,7 @@ export const useAudioPlayer = (
   const [duration, setDuration] = useState(0);
 
   // Helper Refs
-  const nextTrackBlobRef = useRef<{ id: string; blob: Blob } | null>(null);
+  const nextTrackUrlRef = useRef<{ id: string; url: string } | null>(null);
   const currentUrlRef = useRef<string | null>(null);
   const crossfadeUrlRef = useRef<string | null>(null);
   const isTransitioningRef = useRef(false);
@@ -201,9 +201,8 @@ export const useAudioPlayer = (
     immediate?: boolean;
     fromQueue?: boolean;
     customQueue?: string[];
-    preloadedBlob?: Blob;
   } = {}) => {
-    const { immediate = true, fromQueue = false, customQueue, preloadedBlob } = options;
+    const { immediate = true, fromQueue = false, customQueue } = options;
     
     if (!audioElement) return;
 
@@ -267,10 +266,32 @@ export const useAudioPlayer = (
       });
 
       if (immediate) {
-        let nextBlob = preloadedBlob;
-        if (!nextBlob) {
-            nextBlob = await dbService.getAudioBlob(trackId) || undefined;
+        // 1. TRY SYNC PLAYBACK FIRST (Critical for iOS)
+        if (nextTrackUrlRef.current?.id === trackId) {
+            const url = nextTrackUrlRef.current.url;
+
+            // Clear the ref so we don't revoke this URL later while it's playing
+            nextTrackUrlRef.current = null;
+
+            if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
+            currentUrlRef.current = url;
+
+            audioElement.src = url;
+            audioElement.currentTime = 0;
+            setCurrentTime(0);
+
+            try {
+                // This is now synchronous relative to the function start
+                await audioElement.play();
+            } catch (err) {
+                console.error("Sync play failed", err);
+                setPlayer(p => ({ ...p, isPlaying: false }));
+            }
+            return; // Exit early!
         }
+
+        // 2. FALLBACK TO ASYNC (Only if preload failed)
+        let nextBlob = await dbService.getAudioBlob(trackId) || undefined;
 
         if (nextBlob) {
              resumeAudioContext().catch(console.error);
@@ -339,8 +360,7 @@ export const useAudioPlayer = (
              if (currentTrack) {
                  const bestNext = getSmartNextTrack(currentTrack, candidates);
                  if (bestNext) {
-                     const preloaded = nextTrackBlobRef.current?.id === bestNext.id ? nextTrackBlobRef.current.blob : undefined;
-                     playTrack(bestNext.id, { immediate: true, fromQueue: true, preloadedBlob: preloaded });
+                     playTrack(bestNext.id, { immediate: true, fromQueue: true });
                      return;
                  }
              }
@@ -357,8 +377,7 @@ export const useAudioPlayer = (
      }
 
      if (nextId) {
-         const preloaded = nextTrackBlobRef.current?.id === nextId ? nextTrackBlobRef.current.blob : undefined;
-         playTrack(nextId, { immediate: true, fromQueue: true, preloadedBlob: preloaded });
+         playTrack(nextId, { immediate: true, fromQueue: true });
      }
   }, [player, playTrack, libraryTracks]);
 
@@ -633,6 +652,14 @@ export const useAudioPlayer = (
           updatePositionState();
       };
 
+      const onInterruptionEnd = () => {
+          // iOS requires a tiny timeout or user interaction, but sometimes
+          // just calling play() here works if the interruption was temporary
+          if (player.isPlaying) {
+               audioElement.play().catch(console.error);
+          }
+      };
+
       audioElement.addEventListener('timeupdate', onTimeUpdate);
       audioElement.addEventListener('seeked', onSeeked);
       audioElement.addEventListener('seeking', onSeeking);
@@ -640,6 +667,8 @@ export const useAudioPlayer = (
       audioElement.addEventListener('ended', onEnded);
       audioElement.addEventListener('pause', onPause);
       audioElement.addEventListener('play', onPlay);
+      // iOS Interruption recovery
+      document.addEventListener('visibilitychange', onInterruptionEnd);
 
       return () => {
           audioElement.removeEventListener('timeupdate', onTimeUpdate);
@@ -649,24 +678,38 @@ export const useAudioPlayer = (
           audioElement.removeEventListener('ended', onEnded);
           audioElement.removeEventListener('pause', onPause);
           audioElement.removeEventListener('play', onPlay);
+          document.removeEventListener('visibilitychange', onInterruptionEnd);
       };
   }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration]);
 
   // --- PRELOAD NEXT TRACK ---
   useEffect(() => {
-      const currentIndex = player.queue.indexOf(player.currentTrackId || '');
-      let nextId: string | null = null;
-      if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
-          nextId = player.queue[currentIndex + 1];
-      } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
-          nextId = player.queue[0];
-      }
-      if (nextTrackBlobRef.current?.id === nextId) return;
-      if (nextId) {
-          dbService.getAudioBlob(nextId).then(blob => {
-              if (blob) nextTrackBlobRef.current = { id: nextId, blob };
-          });
-      } else { nextTrackBlobRef.current = null; }
+    const currentIndex = player.queue.indexOf(player.currentTrackId || '');
+    let nextId: string | null = null;
+
+    if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
+        nextId = player.queue[currentIndex + 1];
+    } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
+        nextId = player.queue[0];
+    }
+
+    // Cleanup old URL if it changed
+    if (nextTrackUrlRef.current && nextTrackUrlRef.current.id !== nextId) {
+        URL.revokeObjectURL(nextTrackUrlRef.current.url);
+        nextTrackUrlRef.current = null;
+    }
+
+    if (nextTrackUrlRef.current?.id === nextId) return;
+
+    if (nextId) {
+        dbService.getAudioBlob(nextId).then(blob => {
+            if (blob) {
+                // Create URL immediately during preload
+                const url = URL.createObjectURL(blob);
+                nextTrackUrlRef.current = { id: nextId, url };
+            }
+        });
+    }
   }, [player.currentTrackId, player.queue, player.repeat]);
 
   // ✅ FIX #1: Media Session
