@@ -106,8 +106,18 @@ export const useAudioPlayer = (
     });
 
     return () => {
-      if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
-      if (crossfadeUrlRef.current) URL.revokeObjectURL(crossfadeUrlRef.current);
+        if (currentUrlRef.current) {
+            URL.revokeObjectURL(currentUrlRef.current);
+            currentUrlRef.current = null;
+        }
+        if (nextTrackUrlRef.current) {
+            URL.revokeObjectURL(nextTrackUrlRef.current.url);
+            nextTrackUrlRef.current = null;
+        }
+        if (crossfadeUrlRef.current) {
+            URL.revokeObjectURL(crossfadeUrlRef.current);
+            crossfadeUrlRef.current = null;
+        }
     };
   }, [audioElement]);
 
@@ -635,6 +645,16 @@ export const useAudioPlayer = (
       // iOS Interruption recovery
       document.addEventListener('visibilitychange', onInterruptionEnd);
 
+      const handleInterruption = () => {
+        // If we were playing, try to resume logic or update state to Paused
+        if (player.isPlaying && audioElement.paused) {
+             setPlayer(p => ({ ...p, isPlaying: false }));
+        }
+      };
+
+      // 'suspend' often fires on calls/alarms
+      audioElement.addEventListener('suspend', handleInterruption);
+
       return () => {
           audioElement.removeEventListener('timeupdate', onTimeUpdate);
           audioElement.removeEventListener('seeked', onSeeked);
@@ -644,8 +664,9 @@ export const useAudioPlayer = (
           audioElement.removeEventListener('pause', onPause);
           audioElement.removeEventListener('play', onPlay);
           document.removeEventListener('visibilitychange', onInterruptionEnd);
+          audioElement.removeEventListener('suspend', handleInterruption);
       };
-  }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration]);
+  }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration, player.isPlaying]);
 
   // --- PRELOAD NEXT TRACK ---
   useEffect(() => {

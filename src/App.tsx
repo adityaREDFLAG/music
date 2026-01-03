@@ -162,6 +162,19 @@ function MusicApp() {
     }
   }, [currentTrack]);
 
+  useEffect(() => {
+    if (theme?.background) {
+      // Update theme-color meta tag for mobile browsers
+      let metaThemeColor = document.querySelector("meta[name='theme-color']");
+      if (!metaThemeColor) {
+        metaThemeColor = document.createElement('meta');
+        metaThemeColor.setAttribute('name', 'theme-color');
+        document.head.appendChild(metaThemeColor);
+      }
+      metaThemeColor.setAttribute('content', theme.background);
+    }
+  }, [theme]);
+
   // --- FILE UPLOAD LOGIC ---
 
   const processFiles = async (files: FileList | null) => {
