@@ -37,6 +37,7 @@ export const useAudioPlayer = (
   const isTransitioningRef = useRef(false);
   const isScrubbingRef = useRef(false);
   const wasPlayingBeforeScrubRef = useRef(false);
+  const pendingSeekRef = useRef<number | null>(null);
 
   const saveState = useCallback((state: PlayerState) => {
     dbService.setSetting('playerState', state);
@@ -176,6 +177,7 @@ export const useAudioPlayer = (
 
       audioElement.src = nextUrl;
       audioElement.currentTime = 0;
+      setCurrentTime(0);
 
       // Volume fade in if transitioning
       if (prevBlob && !audioElement.paused) {
@@ -304,6 +306,7 @@ export const useAudioPlayer = (
                  currentUrlRef.current = url;
                  audioElement.src = url;
                  audioElement.currentTime = 0;
+                 setCurrentTime(0);
                  // removed audioElement.load() as it can cause issues on iOS
                  try {
                      await audioElement.play();
@@ -425,10 +428,16 @@ export const useAudioPlayer = (
         return;
     }
 
-    // Immediate Audio Update
-    audioElement.currentTime = t;
-    // Immediate UI Update
+    // Immediate UI Update (Optimistic)
     setCurrentTime(t);
+
+    // Audio Update
+    if (audioElement.readyState < 1) { 
+        pendingSeekRef.current = t;
+    } else {
+        audioElement.currentTime = t;
+        pendingSeekRef.current = null;
+    }
 
     // Immediate Session Update (optional, maybe throttle this)
     if ('mediaSession' in navigator && !isNaN(d) && isFinite(d)) {
@@ -474,8 +483,14 @@ export const useAudioPlayer = (
                resumeAudioContext().catch(console.error);
           }
           
-          audioElement.currentTime = t;
           setCurrentTime(t);
+
+          if (audioElement.readyState < 1) {
+             pendingSeekRef.current = t;
+          } else {
+             audioElement.currentTime = t;
+             pendingSeekRef.current = null;
+          }
 
           if ('mediaSession' in navigator && validDuration > 0) {
              navigator.mediaSession.setPositionState({
@@ -526,7 +541,7 @@ export const useAudioPlayer = (
     let rafId: number;
     const loop = () => {
       // Only update if not seeking and not scrubbing to avoid jitter
-      if (!audioElement.seeking && !isScrubbingRef.current) {
+      if (!audioElement.seeking && !isScrubbingRef.current && audioElement.readyState >= 1) {
         setCurrentTime(audioElement.currentTime);
       }
       rafId = requestAnimationFrame(loop);
@@ -588,6 +603,11 @@ export const useAudioPlayer = (
          const d = audioElement.duration;
          setDuration(!isNaN(d) ? d : 0);
          updatePositionState();
+
+         if (pendingSeekRef.current !== null) {
+             audioElement.currentTime = pendingSeekRef.current;
+             pendingSeekRef.current = null;
+         }
       };
 
       const onEnded = () => {
