@@ -134,20 +134,21 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
       if (!isSeekable) return;
       const value = Number((e.target as HTMLInputElement).value);
 
-      // Only update the UI slider, don't touch audio yet
+      // ONLY update the local UI state. Do NOT call scrub() or handleSeek() here.
       setLocalScrubValue(value);
   };
 
   const handleScrubEnd = () => {
+      // If we have a valid scrub value, commit it now
       if (localScrubValue !== null) {
-          // Commit the seek now that the user let go
           handleSeek(localScrubValue);
       }
 
-      // Resume playback if it was playing before
-      if (endScrub) endScrub();
-
+      // Clear local state so the UI goes back to following the player
       setLocalScrubValue(null);
+
+      // Resume playback logic if needed (handled by handleSeek mostly, but strictly reset flags)
+      if (endScrub) endScrub();
   };
 
   // Improved interaction handler to catch releases outside the slider

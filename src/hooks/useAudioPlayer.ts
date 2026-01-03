@@ -459,34 +459,38 @@ export const useAudioPlayer = (
     }
   }, [audioElement]);
 
-  // ✅ FIX #3: Robust Seek Handler for iOS (Jumps)
   const handleSeek = useCallback((time: number) => {
       if (!audioElement) return;
 
-      // 1. Calculate valid duration and clamp time
+      // 1. Calculate and clamp valid time
       let d = audioElement.duration;
-      // Fallback to metadata duration if audio element isn't ready
+      // Fallback to metadata duration if available and element is not ready
       if ((isNaN(d) || !isFinite(d)) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
           d = libraryTracks[player.currentTrackId].duration;
       }
-      const validDuration = isNaN(d) ? 0 : d;
+
+      const validDuration = (isNaN(d) || !isFinite(d)) ? 0 : d;
       const t = Math.max(0, Math.min(time, validDuration));
 
-      // 2. Optimistic UI Update (Instant feedback)
+      // 2. Optimistically update UI state immediately
       setCurrentTime(t);
 
-      // 3. iOS Resume Fix: Ensure context is awake
+      // 3. iOS/Mobile Fix: If paused, briefly wake context (optional but helpful)
       if (audioElement.paused && !wasPlayingBeforeScrubRef.current) {
-          resumeAudioContext().catch(console.error);
+          resumeAudioContext().catch(() => {});
       }
 
-      // 4. EXECUTE SEEK
-      // Just set it directly. The browser handles buffering.
+      // 4. THE FIX: Just set currentTime.
+      // Browsers handle buffering automatically. Waiting for 'readyState' manually causes deadlocks.
       if (Number.isFinite(t)) {
           audioElement.currentTime = t;
       }
 
-      // 5. Update Media Session (Lock Screen)
+      // 5. Reset seeking flags immediately
+      isManualSeekingRef.current = false;
+      pendingSeekRef.current = null;
+
+      // 6. Update Lock Screen / Media Session
       if ('mediaSession' in navigator && validDuration > 0) {
           try {
               navigator.mediaSession.setPositionState({
@@ -495,7 +499,7 @@ export const useAudioPlayer = (
                   position: t
               });
           } catch (e) {
-              // Ignore errors (e.g. if position > duration temporarily)
+              // Ignore temporary media session errors
           }
       }
   }, [audioElement, player.currentTrackId, libraryTracks]);
