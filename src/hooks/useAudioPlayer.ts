@@ -265,7 +265,10 @@ export const useAudioPlayer = (
 
         if (immediate) {
              const track = libraryTracks[trackId];
-             if (track) updateMediaSession(track);
+             if (track) {
+               updateMediaSession(track);
+               setDuration(track.duration); // Optimistic duration update
+             }
         }
 
         return {
@@ -402,7 +405,13 @@ export const useAudioPlayer = (
 
   const scrub = useCallback((time: number) => {
     if (!audioElement) return;
-    const d = audioElement.duration;
+    let d = audioElement.duration;
+
+    // Fallback to library track duration if audio element doesn't know yet
+    if ((isNaN(d) || d === 0) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
+        d = libraryTracks[player.currentTrackId].duration;
+    }
+
     const t = Math.max(0, Math.min(time, isNaN(d) ? 0 : d));
 
     // Immediate Audio Update
@@ -420,7 +429,7 @@ export const useAudioPlayer = (
             });
         } catch(e) {}
     }
-  }, [audioElement]);
+  }, [audioElement, player.currentTrackId, libraryTracks]);
 
   const endScrub = useCallback(() => {
     if (!audioElement) return;
@@ -434,7 +443,12 @@ export const useAudioPlayer = (
   const handleSeek = useCallback(async (time: number) => {
       if (!audioElement) return;
       
-      const d = audioElement.duration;
+      let d = audioElement.duration;
+      // Fallback to library track duration if audio element doesn't know yet
+      if ((isNaN(d) || d === 0) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
+        d = libraryTracks[player.currentTrackId].duration;
+      }
+
       // Allow seeking to 0 even if duration is weird
       const validDuration = isNaN(d) ? 0 : d;
       const t = Math.max(0, Math.min(time, validDuration));
@@ -461,7 +475,7 @@ export const useAudioPlayer = (
       } catch (e) {
           console.error('Error seeking:', e);
       }
-  }, [audioElement]);
+  }, [audioElement, player.currentTrackId, libraryTracks]);
 
   const setVolume = useCallback((volume: number) => {
       const v = Math.max(0, Math.min(1, volume));
