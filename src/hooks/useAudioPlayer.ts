@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { dbService } from '../db';
 import { Track, PlayerState, RepeatMode } from '../types';
+import { resumeAudioContext } from './useAudioAnalyzer';
 
 export const useAudioPlayer = (
   libraryTracks: Record<string, Track>,
@@ -151,6 +152,7 @@ export const useAudioPlayer = (
              audioElement.src = url;
              audioElement.currentTime = 0;
              try {
+                    await resumeAudioContext();
                 await audioElement.play();
              } catch (err) {
                  console.warn("Autoplay (preloaded) prevented:", err);
@@ -167,6 +169,7 @@ export const useAudioPlayer = (
                  audioElement.src = url;
                  audioElement.currentTime = 0;
                  try {
+                    await resumeAudioContext();
                     await audioElement.play();
                  } catch (err) {
                      console.warn("Autoplay (fetched) prevented:", err);
@@ -190,12 +193,14 @@ export const useAudioPlayer = (
     if (!audioElement) return;
 
     if (audioElement.paused) {
-        audioElement.play()
-            .then(() => setPlayer(p => ({ ...p, isPlaying: true })))
-            .catch(err => {
-                console.error("Play failed:", err);
-                setPlayer(p => ({ ...p, isPlaying: false }));
-            });
+        resumeAudioContext().then(() => {
+            audioElement.play()
+                .then(() => setPlayer(p => ({ ...p, isPlaying: true })))
+                .catch(err => {
+                    console.error("Play failed:", err);
+                    setPlayer(p => ({ ...p, isPlaying: false }));
+                });
+        });
     } else {
         audioElement.pause();
         setPlayer(p => ({ ...p, isPlaying: false }));

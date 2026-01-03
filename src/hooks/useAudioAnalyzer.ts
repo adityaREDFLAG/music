@@ -13,11 +13,22 @@ const sourceNodes = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>()
 // Global audio context to prevent "max context" errors
 let globalAudioContext: AudioContext | null = null;
 
-const getAudioContext = () => {
+export const getAudioContext = () => {
     if (!globalAudioContext) {
         globalAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
     return globalAudioContext;
+};
+
+export const resumeAudioContext = async () => {
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') {
+        try {
+            await ctx.resume();
+        } catch (e) {
+            console.error("Failed to resume AudioContext", e);
+        }
+    }
 };
 
 export const useAudioAnalyzer = (audioElement: HTMLAudioElement | null, isPlaying: boolean) => {
