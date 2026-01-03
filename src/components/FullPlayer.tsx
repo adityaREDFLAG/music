@@ -47,6 +47,7 @@ interface FullPlayerProps {
   onVolumeChange?: (volume: number) => void; // Kept in interface to prevent parent errors, but unused in UI
   toggleShuffle: () => void;
   onRemoveTrack?: (id: string) => void;
+  onTrackUpdate?: (track: Track) => void;
 }
 
 const FullPlayer: React.FC<FullPlayerProps> = ({
@@ -64,6 +65,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   handleSeek,
   toggleShuffle,
   onRemoveTrack,
+  onTrackUpdate,
 }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
@@ -84,60 +86,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
-
-  // --- Media Session API (iOS Control Center) ---
-  useEffect(() => {
-    if (!('mediaSession' in navigator) || !currentTrack) return;
-
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist,
-        artwork: [
-          { src: currentTrack.coverArt, sizes: '96x96', type: 'image/png' },
-          { src: currentTrack.coverArt, sizes: '128x128', type: 'image/png' },
-          { src: currentTrack.coverArt, sizes: '192x192', type: 'image/png' },
-          { src: currentTrack.coverArt, sizes: '256x256', type: 'image/png' },
-          { src: currentTrack.coverArt, sizes: '512x512', type: 'image/png' },
-        ],
-      });
-
-      // Update Playback State
-      if (safeDuration > 0.01 && !isNaN(currentTime)) {
-        navigator.mediaSession.setPositionState({
-          duration: safeDuration,
-          playbackRate: 1.0,
-          position: Math.min(Math.max(0, currentTime), safeDuration),
-        });
-      }
-    } catch (e) {
-      console.warn("Media Session update failed", e);
-    }
-
-    const actionHandlers = [
-      ['play', togglePlay],
-      ['pause', togglePlay],
-      ['previoustrack', prevTrack],
-      ['nexttrack', nextTrack],
-      ['seekto', (details: any) => {
-        if (typeof details.seekTime === 'number') {
-          handleSeek(details.seekTime);
-          setScrubValue(details.seekTime);
-        }
-      }],
-    ];
-
-    actionHandlers.forEach(([action, handler]) => {
-      try { navigator.mediaSession.setActionHandler(action as any, handler as any); } 
-      catch (e) { /* Ignore unsupported actions */ }
-    });
-
-    return () => {
-      actionHandlers.forEach(([action]) => {
-        try { navigator.mediaSession.setActionHandler(action as any, null); } catch (e) {}
-      });
-    };
-  }, [currentTrack, playerState.isPlaying, safeDuration, currentTime, togglePlay, prevTrack, nextTrack, handleSeek]);
 
   // --- Scrubbing Sync ---
   useEffect(() => {
@@ -295,6 +243,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                        currentTime={currentTime}
                        onSeek={handleSeek}
                        onClose={() => setShowLyrics(false)}
+                       onTrackUpdate={onTrackUpdate}
                      />
                   </motion.div>
                 ) : showQueue ? (

@@ -9,10 +9,11 @@ interface LyricsViewProps {
   currentTime: number;
   onSeek: (time: number) => void;
   onClose?: () => void;
+  onTrackUpdate?: (track: Track) => void;
 }
 
-const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek }) => {
-  const [lyrics, setLyrics] = useState<Lyrics | null>(null);
+const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onTrackUpdate }) => {
+  const [lyrics, setLyrics] = useState<Lyrics | null>(track.lyrics || null);
   const [loading, setLoading] = useState(false);
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
@@ -29,7 +30,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek }) =
       if (track.lyrics && !track.lyrics.error) {
         setLyrics(track.lyrics);
         setLoading(false);
-        setActiveLineIndex(-1);
         return;
       }
 
@@ -41,6 +41,9 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek }) =
         const data = await fetchLyrics(track);
         if (mounted) {
           setLyrics(data);
+          if (onTrackUpdate && !data.error) {
+             onTrackUpdate({ ...track, lyrics: data });
+          }
         }
       } catch (error) {
         console.error("Failed to load lyrics:", error);
@@ -50,7 +53,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek }) =
     };
     load();
     return () => { mounted = false; };
-  }, [track]);
+  }, [track.id, track.title, track.artist]);
 
   // Sync Active Line
   useEffect(() => {
