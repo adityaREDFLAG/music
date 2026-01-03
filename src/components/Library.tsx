@@ -181,9 +181,75 @@ TrackRow.displayName = 'TrackRow';
 const SettingsTab = ({ playerState, setPlayerState }: { playerState: PlayerState, setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>> }) => {
     return (
         <div className="flex flex-col gap-6 p-4">
-           <h2 className="text-xl font-bold text-on-surface">Playback</h2>
+           <h2 className="text-xl font-bold text-on-surface">Automix System</h2>
 
-           <div className="bg-surface-variant/30 rounded-2xl p-4 flex flex-col gap-4">
+           <div className="bg-surface-variant/30 rounded-2xl p-4 flex flex-col gap-6">
+               {/* Automix Toggle */}
+               <div className="flex items-center justify-between">
+                   <div className="flex flex-col">
+                       <span className="text-lg font-medium text-on-surface">Automix</span>
+                       <span className="text-sm text-on-surface/60">Smart transitions & seamless blends</span>
+                   </div>
+                   <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={playerState.automixEnabled || false}
+                            onChange={(e) => {
+                                const val = e.target.checked;
+                                setPlayerState(p => ({ ...p, automixEnabled: val }));
+                            }}
+                        />
+                        <div className="w-11 h-6 bg-surface-variant rounded-full peer peer-focus:ring-4 peer-focus:ring-primary/30 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+               </div>
+
+               {playerState.automixEnabled && (
+                   <div className="flex flex-col gap-4 pl-2 border-l-2 border-primary/20">
+                       <div className="flex flex-col gap-2">
+                           <span className="text-sm font-medium text-on-surface/80">Transition Style</span>
+                           <div className="flex gap-2">
+                               {['classic', 'smart', 'shuffle'].map((mode) => (
+                                   <button
+                                       key={mode}
+                                       onClick={() => setPlayerState(p => ({ ...p, automixMode: mode as any }))}
+                                       className={`px-3 py-1.5 rounded-lg text-sm capitalize transition-all ${
+                                           playerState.automixMode === mode
+                                           ? 'bg-primary text-on-primary'
+                                           : 'bg-surface-variant text-on-surface hover:bg-surface-variant-dim'
+                                       }`}
+                                   >
+                                       {mode}
+                                   </button>
+                               ))}
+                           </div>
+                           <p className="text-xs text-on-surface/50 mt-1">
+                               {playerState.automixMode === 'classic' && "Standard crossfade between songs."}
+                               {playerState.automixMode === 'smart' && "Analyzes BPM & Key for perfect blends."}
+                               {playerState.automixMode === 'shuffle' && "Jumps to compatible songs randomly."}
+                           </p>
+                       </div>
+
+                       <div className="flex items-center justify-between">
+                           <span className="text-sm font-medium text-on-surface/80">Volume Normalization</span>
+                            <label className="relative inline-flex items-center cursor-pointer scale-90 origin-right">
+                                <input
+                                    type="checkbox"
+                                    className="sr-only peer"
+                                    checked={playerState.normalizationEnabled || false}
+                                    onChange={(e) => {
+                                        setPlayerState(p => ({ ...p, normalizationEnabled: e.target.checked }));
+                                    }}
+                                />
+                                <div className="w-11 h-6 bg-surface-variant rounded-full peer peer-focus:ring-4 peer-focus:ring-primary/30 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                            </label>
+                       </div>
+                   </div>
+               )}
+
+               <div className="h-px bg-surface-variant/50 my-1" />
+
+               {/* Crossfade Settings */}
                <div className="flex items-center justify-between">
                    <div className="flex flex-col">
                        <span className="text-lg font-medium text-on-surface">Crossfade</span>

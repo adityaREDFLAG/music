@@ -82,7 +82,8 @@ function MusicApp() {
     setVolume,
     toggleShuffle,
     playTrack,
-    setAudioElement // Exposed from useAudioPlayer
+    setAudioElement, // Exposed from useAudioPlayer
+    setCrossfadeAudioElement
   } = useAudioPlayer(library.tracks, updateMediaSession);
 
   // We need to access the actual audio element ref here to pass to the analyzer
@@ -92,6 +93,10 @@ function MusicApp() {
       setAudioElement(node);
       setAudioElementNode(node);
   }, [setAudioElement]);
+
+  const setCrossfadeAudioRef = useCallback((node: HTMLAudioElement | null) => {
+      setCrossfadeAudioElement(node);
+  }, [setCrossfadeAudioElement]);
 
   // ANALYZER MOVED TO APP LEVEL
   const analyzerData = useAudioAnalyzer(audioElementNode, player.isPlaying);
@@ -317,6 +322,15 @@ function MusicApp() {
             }
           }
         }}
+      />
+      {/* SECONDARY AUDIO FOR CROSSFADE */}
+      <audio
+        ref={setCrossfadeAudioRef}
+        playsInline
+        crossOrigin="anonymous"
+        preload="auto"
+        controlsList="nodownload"
+        className="hidden" // Helper audio, never shown
       />
 
       <Layout 

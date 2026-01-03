@@ -14,6 +14,9 @@ export interface Track {
   duration: number;
   addedAt: number;
   lyrics?: Lyrics;
+  bpm?: number;
+  key?: string; // e.g. "8A", "Cm"
+  energy?: number; // 0.0 - 1.0
 }
 
 export interface Playlist {
@@ -37,6 +40,9 @@ export interface PlayerState {
   volume: number;
   crossfadeEnabled: boolean;
   crossfadeDuration: number;
+  automixEnabled: boolean;
+  automixMode: 'classic' | 'smart' | 'shuffle'; // classic = normal crossfade, smart = beat match/key, shuffle = random compatible
+  normalizationEnabled: boolean;
 }
 
 export interface LibraryState {
