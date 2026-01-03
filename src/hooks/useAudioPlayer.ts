@@ -95,7 +95,6 @@ export const useAudioPlayer = (
       if (!audioElement || !crossfadeAudioElement) return;
 
       // 1. Setup Crossfade Audio (Outgoing)
-      // We only do this if we are currently playing something
       if (prevBlob && !audioElement.paused) {
            isTransitioningRef.current = true;
 
@@ -107,7 +106,6 @@ export const useAudioPlayer = (
            crossfadeAudioElement.currentTime = audioElement.currentTime;
            crossfadeAudioElement.volume = audioElement.volume;
 
-           // Play outgoing track
            try {
                await crossfadeAudioElement.play();
            } catch(e) {
@@ -186,10 +184,6 @@ export const useAudioPlayer = (
     // Get current blob before switching state if we are crossfading
     let currentBlob: Blob | null = null;
     if (player.crossfadeEnabled && player.currentTrackId && immediate) {
-        // Optimistically try to get the blob for the *current* track to move it to secondary
-        // But we might not have it in memory.
-        // NOTE: This assumes we can fetch it fast enough.
-        // For now, fetch it.
         try {
             currentBlob = await dbService.getAudioBlob(player.currentTrackId);
         } catch (e) { console.warn("Could not fetch current blob for crossfade"); }
@@ -280,17 +274,16 @@ export const useAudioPlayer = (
     }
   }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue]);
 
-  const togglePlay = useCallback(() => {
+  const togglePlay = useCallback(async () => {
     if (!audioElement) return;
 
     if (audioElement.paused) {
-        resumeAudioContext().then(() => {
-            audioElement.play()
-                .then(() => setPlayer(p => ({ ...p, isPlaying: true })))
-                .catch(err => {
-                    setPlayer(p => ({ ...p, isPlaying: false }));
-                });
-        });
+        await resumeAudioContext(); // Ensure context is awake
+        audioElement.play()
+            .then(() => setPlayer(p => ({ ...p, isPlaying: true })))
+            .catch(err => {
+                setPlayer(p => ({ ...p, isPlaying: false }));
+            });
     } else {
         audioElement.pause();
         if (crossfadeAudioElement) crossfadeAudioElement.pause();
@@ -301,11 +294,9 @@ export const useAudioPlayer = (
   const nextTrack = useCallback(() => {
      // Automix Logic
      if (player.automixEnabled && (player.automixMode === 'smart' || player.automixMode === 'shuffle')) {
-         // Find best candidate from the rest of the queue
          const currentIdx = player.queue.indexOf(player.currentTrackId || '');
          const restOfQueueIds = player.queue.slice(currentIdx + 1);
 
-         // If we are at end of queue and repeat is ALL, wrap around
          if (restOfQueueIds.length === 0 && player.repeat === RepeatMode.ALL) {
              restOfQueueIds.push(...player.queue);
          }
@@ -355,7 +346,8 @@ export const useAudioPlayer = (
       }
   }, [player.queue, player.currentTrackId, player.repeat, playTrack, audioElement]);
 
-  const handleSeek = useCallback((time: number) => {
+  // ✅ FIX #3: Robust Seek Handler for iOS
+  const handleSeek = useCallback(async (time: number) => {
       if (!audioElement) return;
       
       const d = audioElement.duration;
@@ -365,8 +357,19 @@ export const useAudioPlayer = (
       const t = Math.max(0, Math.min(time, validDuration));
       
       try {
+          await resumeAudioContext(); // Resume first
+          
           audioElement.currentTime = t;
           setCurrentTime(t);
+
+          // Update session immediately for lockscreen responsiveness
+          if ('mediaSession' in navigator) {
+             navigator.mediaSession.setPositionState({
+                duration: d,
+                playbackRate: audioElement.playbackRate,
+                position: t
+             });
+          }
       } catch (e) {
           console.error('Error seeking:', e);
       }
@@ -402,7 +405,25 @@ export const useAudioPlayer = (
       });
   }, []);
 
-  // --- EVENT LISTENERS ---
+  // ✅ FIX #2: RAF Loop for Smooth UI Updates (Foreground)
+  useEffect(() => {
+    if (!audioElement || !player.isPlaying) return;
+
+    let rafId: number;
+    const loop = () => {
+      // Only update if not seeking to avoid jitter
+      if (!audioElement.seeking) {
+        setCurrentTime(audioElement.currentTime);
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [audioElement, player.isPlaying]);
+
+
+  // --- EVENT LISTENERS (Standard Logic + Background Updates) ---
   useEffect(() => {
       if (!audioElement) return;
 
@@ -425,26 +446,16 @@ export const useAudioPlayer = (
           if (!audioElement.seeking) {
               const now = performance.now();
               if (now - lastTimeUpdateRef > TIME_UPDATE_THROTTLE) {
+                  // Keep this for background state updates, 
+                  // but RAF handles the UI when in foreground
                   setCurrentTime(audioElement.currentTime);
                   lastTimeUpdateRef = now;
               }
 
-              // Automix Trigger: If we are near end (e.g. 10s left) and automix is ON, maybe pre-fetch/schedule?
-              // Currently we rely on 'ended', but for true beatmatching/crossfade we might want to trigger early.
-              // For simple crossfade, 'ended' is too late. We need to trigger slightly before 'ended'.
-              // But standard crossfade usually happens on track change.
-              // If we want "continuous mix", we should trigger next track before current one ends.
-
+              // Automix/Crossfade trigger logic
               const timeLeft = audioElement.duration - audioElement.currentTime;
               if (player.crossfadeEnabled && !isTransitioningRef.current && timeLeft <= player.crossfadeDuration && timeLeft > 0) {
-                   // This is where "Auto Crossfade" happens for continuous playback
-                   // BUT be careful not to trigger it multiple times.
-                   // This requires a "hasTriggeredNext" ref.
-                   // Leaving this out for now to avoid complexity bugs, relying on manual or standard end-of-track flow
-                   // unless user specifically requested "Seamless Automix" which implies this behavior.
-
-                   // For now, let's stick to "Transitions happen when nextTrack is called" or on Ended.
-                   // To make it truly seamless, we'd need to call nextTrack() BEFORE 'ended'.
+                   // Placeholder for auto-transition triggers if you implement seamless mix later
               }
           }
       };
@@ -470,7 +481,6 @@ export const useAudioPlayer = (
       };
 
       const onPause = () => {
-          // Only update state if not transitioning
           if (!audioElement.ended && !isTransitioningRef.current) {
              setPlayer(p => ({ ...p, isPlaying: false }));
           }
@@ -500,7 +510,6 @@ export const useAudioPlayer = (
 
   // --- PRELOAD NEXT TRACK ---
   useEffect(() => {
-      // Logic same as before...
       const currentIndex = player.queue.indexOf(player.currentTrackId || '');
       let nextId: string | null = null;
       if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
@@ -516,15 +525,30 @@ export const useAudioPlayer = (
       } else { nextTrackBlobRef.current = null; }
   }, [player.currentTrackId, player.queue, player.repeat]);
 
-  // --- MEDIA SESSION ---
+  // ✅ FIX #1: Media Session with Context Resumption for iOS Background Audio
   useEffect(() => {
       if ('mediaSession' in navigator) {
           try {
-              navigator.mediaSession.setActionHandler('play', () => togglePlay());
+              navigator.mediaSession.setActionHandler('play', async () => {
+                  await resumeAudioContext();
+                  togglePlay();
+              });
               navigator.mediaSession.setActionHandler('pause', () => togglePlay());
-              navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
-              navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
-              navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime !== undefined) handleSeek(d.seekTime); });
+              navigator.mediaSession.setActionHandler('previoustrack', async () => {
+                  await resumeAudioContext();
+                  prevTrack();
+              });
+              navigator.mediaSession.setActionHandler('nexttrack', async () => {
+                  await resumeAudioContext();
+                  nextTrack();
+              });
+              navigator.mediaSession.setActionHandler('seekto', async (d) => { 
+                  if (d.seekTime !== undefined) {
+                      await resumeAudioContext();
+                      handleSeek(d.seekTime); 
+                  }
+              });
+              
               navigator.mediaSession.playbackState = audioElement?.paused ? 'paused' : 'playing';
           } catch (e) {}
       }
