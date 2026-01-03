@@ -155,6 +155,21 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
       setLocalScrubValue(null);
   };
 
+  // Improved interaction handler to catch releases outside the slider
+  const handleScrubInteractionStart = (e: React.PointerEvent<HTMLInputElement>) => {
+      e.stopPropagation();
+      handleScrubStart();
+
+      const onPointerUp = () => {
+          handleScrubEnd();
+          window.removeEventListener('pointerup', onPointerUp);
+          window.removeEventListener('pointercancel', onPointerUp);
+      };
+
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+  };
+
   useEffect(() => {
     if (!isPlayerOpen) return;
     let isMounted = true;
@@ -371,35 +386,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     step={0.1} // High resolution for smooth dragging
                     value={displayValue}
                     onChange={handleScrubChange}
-                    onInput={handleScrubChange}
-
-                    // Mouse Events
-                    onMouseDown={(e) => {
-                        e.stopPropagation();
-                        handleScrubStart();
-                    }}
-                    onMouseUp={(e) => {
-                        handleScrubEnd();
-                    }}
-
-                    // Touch Events
-                    onTouchStart={(e) => {
-                        e.stopPropagation();
-                        handleScrubStart();
-                    }}
-                    onTouchEnd={(e) => {
-                        handleScrubEnd();
-                    }}
-
-                    // Pointer Events (Catch-all)
-                    onPointerDown={(e) => {
-                        e.stopPropagation();
-                        handleScrubStart();
-                    }}
-                    onPointerUp={(e) => {
-                        handleScrubEnd();
-                    }}
-
+                    onPointerDown={handleScrubInteractionStart}
                     className="absolute -inset-x-0 -top-2.5 w-full h-6 opacity-0 cursor-pointer z-50"
                     style={{ pointerEvents: 'auto', bottom: '-8px' }}
                   />
