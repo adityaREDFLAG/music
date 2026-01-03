@@ -35,6 +35,8 @@ export const useAudioPlayer = (
   const currentUrlRef = useRef<string | null>(null);
   const crossfadeUrlRef = useRef<string | null>(null);
   const isTransitioningRef = useRef(false);
+  const isScrubbingRef = useRef(false);
+  const wasPlayingBeforeScrubRef = useRef(false);
 
   const saveState = useCallback((state: PlayerState) => {
     dbService.setSetting('playerState', state);
@@ -387,26 +389,71 @@ export const useAudioPlayer = (
       }
   }, [player.queue, player.currentTrackId, player.repeat, playTrack, audioElement]);
 
-  // ✅ FIX #3: Robust Seek Handler for iOS
+  // --- SCRUBBING & SEEKING LOGIC ---
+
+  const startScrub = useCallback(() => {
+    if (!audioElement) return;
+    isScrubbingRef.current = true;
+    wasPlayingBeforeScrubRef.current = !audioElement.paused;
+    if (wasPlayingBeforeScrubRef.current) {
+        audioElement.pause();
+    }
+  }, [audioElement]);
+
+  const scrub = useCallback((time: number) => {
+    if (!audioElement) return;
+    const d = audioElement.duration;
+    const t = Math.max(0, Math.min(time, (isNaN(d) || !isFinite(d)) ? 0 : d));
+
+    // Immediate Audio Update
+    audioElement.currentTime = t;
+    // Immediate UI Update
+    setCurrentTime(t);
+
+    // Immediate Session Update (optional, maybe throttle this)
+    if ('mediaSession' in navigator && !isNaN(d) && isFinite(d)) {
+        try {
+            navigator.mediaSession.setPositionState({
+                duration: d,
+                playbackRate: audioElement.playbackRate,
+                position: t
+            });
+        } catch(e) {}
+    }
+  }, [audioElement]);
+
+  const endScrub = useCallback(() => {
+    if (!audioElement) return;
+    isScrubbingRef.current = false;
+    if (wasPlayingBeforeScrubRef.current) {
+        audioElement.play().catch(console.error);
+    }
+  }, [audioElement]);
+
+  // ✅ FIX #3: Robust Seek Handler for iOS (Jumps)
   const handleSeek = useCallback(async (time: number) => {
       if (!audioElement) return;
       
       const d = audioElement.duration;
-      if (isNaN(d) || !isFinite(d) || d <= 0) return;
-      
-      const validDuration = d;
+      // Allow seeking to 0 even if duration is weird
+      const validDuration = (isNaN(d) || !isFinite(d)) ? 0 : d;
       const t = Math.max(0, Math.min(time, validDuration));
       
       try {
-          await resumeAudioContext(); // Resume first
+          // If we are jumping (not scrubbing), ensure context is awake
+          if (audioElement.paused && !wasPlayingBeforeScrubRef.current) {
+               // Only force resume if we intend to play or if user interaction requires it
+               // For simple seek, we might not need to resume context if paused?
+               // But iOS might require it. Safe to call.
+               await resumeAudioContext();
+          }
           
           audioElement.currentTime = t;
           setCurrentTime(t);
 
-          // Update session immediately for lockscreen responsiveness
-          if ('mediaSession' in navigator) {
+          if ('mediaSession' in navigator && validDuration > 0) {
              navigator.mediaSession.setPositionState({
-                duration: d,
+                duration: validDuration,
                 playbackRate: audioElement.playbackRate,
                 position: t
              });
@@ -452,8 +499,8 @@ export const useAudioPlayer = (
 
     let rafId: number;
     const loop = () => {
-      // Only update if not seeking to avoid jitter
-      if (!audioElement.seeking) {
+      // Only update if not seeking and not scrubbing to avoid jitter
+      if (!audioElement.seeking && !isScrubbingRef.current) {
         setCurrentTime(audioElement.currentTime);
       }
       rafId = requestAnimationFrame(loop);
@@ -484,7 +531,7 @@ export const useAudioPlayer = (
       };
 
       const onTimeUpdate = () => {
-          if (!audioElement.seeking) {
+          if (!audioElement.seeking && !isScrubbingRef.current) {
               const now = performance.now();
               if (now - lastTimeUpdateRef > TIME_UPDATE_THROTTLE) {
                   // Keep this for background state updates, 
@@ -612,6 +659,9 @@ export const useAudioPlayer = (
     nextTrack,
     prevTrack,
     handleSeek,
+    startScrub,
+    scrub,
+    endScrub,
     setVolume,
     toggleShuffle,
     setAudioElement,
