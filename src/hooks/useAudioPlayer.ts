@@ -480,14 +480,13 @@ export const useAudioPlayer = (
           resumeAudioContext().catch(() => {});
       }
 
-      // 4. THE FIX: Just set currentTime.
-      // Browsers handle buffering automatically. Waiting for 'readyState' manually causes deadlocks.
+      // 4. THE FIX: Lock updates, then set time
       if (Number.isFinite(t)) {
+          isManualSeekingRef.current = true;
           audioElement.currentTime = t;
       }
 
-      // 5. Reset seeking flags immediately
-      isManualSeekingRef.current = false;
+      // 5. Reset other flags (DO NOT reset isManualSeekingRef here; wait for onSeeked)
       pendingSeekRef.current = null;
 
       // 6. Update Lock Screen / Media Session
