@@ -403,7 +403,7 @@ export const useAudioPlayer = (
   const scrub = useCallback((time: number) => {
     if (!audioElement) return;
     const d = audioElement.duration;
-    const t = Math.max(0, Math.min(time, (isNaN(d) || !isFinite(d)) ? 0 : d));
+    const t = Math.max(0, Math.min(time, isNaN(d) ? 0 : d));
 
     // Immediate Audio Update
     audioElement.currentTime = t;
@@ -436,7 +436,7 @@ export const useAudioPlayer = (
       
       const d = audioElement.duration;
       // Allow seeking to 0 even if duration is weird
-      const validDuration = (isNaN(d) || !isFinite(d)) ? 0 : d;
+      const validDuration = isNaN(d) ? 0 : d;
       const t = Math.max(0, Math.min(time, validDuration));
       
       try {
@@ -555,7 +555,7 @@ export const useAudioPlayer = (
 
       const onDurationChange = () => {
          const d = audioElement.duration;
-         setDuration(!isNaN(d) && isFinite(d) ? d : 0);
+         setDuration(!isNaN(d) ? d : 0);
          updatePositionState();
       };
 
