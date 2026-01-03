@@ -6,7 +6,7 @@ import { dbService } from './db';
 import { Track, LibraryState, RepeatMode } from './types';
 import { useMetadata } from './hooks/useMetadata';
 import { parseTrackMetadata } from './utils/metadata';
-import { extractDominantColor } from './utils/colors';
+import { extractDominantColor, ThemePalette } from './utils/colors';
 import LoadingOverlay from './components/LoadingOverlay';
 import Home from './components/Home';
 import Library from './components/Library';
@@ -15,6 +15,7 @@ import MiniPlayer from './components/MiniPlayer';
 import FullPlayer from './components/FullPlayer';
 import { Layout } from './components/Layout';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
+import { useAudioAnalyzer } from './hooks/useAudioAnalyzer'; // IMPORTED HERE
 import { ToastProvider, useToast } from './components/Toast';
 
 type LibraryTab = 'Songs' | 'Albums' | 'Artists' | 'Playlists';
@@ -28,7 +29,7 @@ function MusicApp() {
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('Songs');
   const [searchQuery, setSearchQuery] = useState('');
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  const [themeColor, setThemeColor] = useState('#6750A4'); 
+  const [theme, setTheme] = useState<ThemePalette | null>(null);
   
   // Data State
   const [library, setLibrary] = useState<LibraryState>({ tracks: {}, playlists: {} });
@@ -69,7 +70,6 @@ function MusicApp() {
     }
   }, []);
 
-  // 1. EXTRACT audioRef HERE
   const {
     player,
     setPlayer,
@@ -82,8 +82,19 @@ function MusicApp() {
     setVolume,
     toggleShuffle,
     playTrack,
-    setAudioElement // <--- CRITICAL: Get the ref from the hook
+    setAudioElement // Exposed from useAudioPlayer
   } = useAudioPlayer(library.tracks, updateMediaSession);
+
+  // We need to access the actual audio element ref here to pass to the analyzer
+  // But setAudioElement is a callback ref. We can wrap it.
+  const [audioElementNode, setAudioElementNode] = useState<HTMLAudioElement | null>(null);
+  const setAudioRef = useCallback((node: HTMLAudioElement | null) => {
+      setAudioElement(node);
+      setAudioElementNode(node);
+  }, [setAudioElement]);
+
+  // ANALYZER MOVED TO APP LEVEL
+  const analyzerData = useAudioAnalyzer(audioElementNode, player.isPlaying);
 
   // Queue Management
   const handleRemoveFromQueue = useCallback((trackId: string) => {
@@ -130,12 +141,13 @@ function MusicApp() {
   // Dynamic Theme Color from Cover Art
   useEffect(() => {
     if (currentTrack?.coverArt) {
-      extractDominantColor(currentTrack.coverArt).then(color => {
-        if (color) {
-          const rgb = color.match(/\d+, \d+, \d+/)?.[0];
+      extractDominantColor(currentTrack.coverArt).then(palette => {
+        if (palette) {
+          setTheme(palette);
+          // Set global CSS variable for other components if needed
+          const rgb = palette.primary.match(/\d+, \d+, \d+/)?.[0];
           if (rgb) {
-            document.documentElement.style.setProperty('--color-primary', rgb);
-            setThemeColor(color);
+              document.documentElement.style.setProperty('--color-primary', rgb);
           }
         }
       });
@@ -290,8 +302,9 @@ function MusicApp() {
     <>
       {/* 2. THE BACKGROUND PLAY FIX: Render Audio Element Here */}
       <audio 
-        ref={setAudioElement}
+        ref={setAudioRef} // CHANGED to wrapped ref
         playsInline 
+        crossOrigin="anonymous" // ADDED for Web Audio API
         preload="auto"
         onError={(e) => console.error("Audio tag error:", e)}
       />
@@ -390,10 +403,11 @@ function MusicApp() {
         duration={duration}
         handleSeek={handleSeek}
         onVolumeChange={setVolume}
-        themeColor={themeColor}
+        theme={theme}
         toggleShuffle={toggleShuffle}
         onRemoveTrack={handleRemoveFromQueue}
         onTrackUpdate={handleTrackUpdate}
+        analyzerData={analyzerData} // Pass analyzer data
       />
     </>
   );

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   motion,
   AnimatePresence,
   useMotionValue,
   useTransform,
   useDragControls,
+  useSpring
 } from 'framer-motion';
 import {
   Shuffle,
@@ -21,6 +22,8 @@ import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
 import QueueList from './QueueList';
 import LyricsView from './LyricsView';
+import { ThemePalette } from '../utils/colors';
+import { AudioAnalysis } from '../hooks/useAudioAnalyzer';
 
 // Helper to format time (mm:ss)
 const formatTime = (seconds: number) => {
@@ -44,10 +47,13 @@ interface FullPlayerProps {
   currentTime: number;
   duration: number;
   handleSeek: (time: number) => void;
-  onVolumeChange?: (volume: number) => void; // Kept in interface to prevent parent errors, but unused in UI
+  onVolumeChange?: (volume: number) => void;
   toggleShuffle: () => void;
   onRemoveTrack?: (id: string) => void;
   onTrackUpdate?: (track: Track) => void;
+  theme: ThemePalette | null;
+  themeColor?: string;
+  analyzerData?: AudioAnalysis; // Accept data from prop
 }
 
 const FullPlayer: React.FC<FullPlayerProps> = ({
@@ -66,6 +72,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   toggleShuffle,
   onRemoveTrack,
   onTrackUpdate,
+  theme,
+  analyzerData
 }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
@@ -73,6 +81,24 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
   const scrubValueRef = React.useRef(scrubValue);
+
+  // Use props directly
+  const { beat } = analyzerData || { beat: false };
+
+  // Beat Animations
+  const beatScale = useSpring(1, { stiffness: 300, damping: 10 });
+  const glowOpacity = useSpring(0, { stiffness: 200, damping: 20 });
+
+  useEffect(() => {
+      if (beat && isPlayerOpen) {
+          beatScale.set(1.03); // Pop
+          glowOpacity.set(0.6); // Flash
+          setTimeout(() => {
+              beatScale.set(1);
+              glowOpacity.set(0);
+          }, 100);
+      }
+  }, [beat, beatScale, glowOpacity, isPlayerOpen]);
 
   // Use a timeout to prevent jumping back after seek
   const ignoreTimeUpdateRef = React.useRef(false);
@@ -100,23 +126,16 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     scrubValueRef.current = value;
   };
 
-  // Fixed: Handles both Mouse and Touch end events
   const handleSeekCommit = React.useCallback(() => {
     const seekTime = scrubValueRef.current;
-
-    // 1. Perform Seek
     handleSeek(seekTime);
-
-    // 2. Temporarily ignore updates to prevent jumping back
     ignoreTimeUpdateRef.current = true;
     setTimeout(() => {
         ignoreTimeUpdateRef.current = false;
-    }, 500); // 500ms should be enough for the audio engine to catch up
-
+    }, 500);
     setIsScrubbing(false);
   }, [handleSeek]);
 
-  // Global pointer up to catch drags ending outside the input
   useEffect(() => {
     if (isScrubbing) {
       const onEnd = () => handleSeekCommit();
@@ -127,7 +146,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     }
   }, [isScrubbing, handleSeekCommit]);
 
-  // --- Fetch Tracks ---
   useEffect(() => {
     if (!isPlayerOpen) return;
     let isMounted = true;
@@ -159,29 +177,25 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   const handleQueuePlayNext = (trackId: string) => {
     setPlayerState(prev => {
-      // Logic: remove track from current pos (if in future) and insert after current
       const q = [...prev.queue];
-      const currentIdx = q.indexOf(prev.currentTrackId || '');
-      // If track is already in queue, we might want to move it?
-      // Simple approach: insert after current. Duplicates handled by unique keys in QueueList if we allow them.
-      // But typically we remove the old instance if it's "move to play next"
-
       const existingIdx = q.indexOf(trackId);
       if (existingIdx !== -1) {
         q.splice(existingIdx, 1);
       }
-
-      // Re-find current index as it might have shifted
       let newCurrentIdx = q.indexOf(prev.currentTrackId || '');
       if (newCurrentIdx === -1) newCurrentIdx = 0;
-
       q.splice(newCurrentIdx + 1, 0, trackId);
-
       return { ...prev, queue: q };
     });
   };
 
   if (!currentTrack) return null;
+
+  // Dynamic Styles
+  const primaryColor = theme?.primary || '#ffffff';
+  const secondaryColor = theme?.secondary || '#a1a1aa';
+  const mutedColor = theme?.muted || '#71717a';
+  const backgroundColor = theme?.background || '#09090b';
 
   return (
     <AnimatePresence>
@@ -194,30 +208,41 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           drag="y"
           dragControls={dragControls}
-          dragListener={false} // Only drag via handle
+          dragListener={false}
           dragConstraints={{ top: 0 }}
           dragElastic={0.05}
-          style={{ opacity, y: dragY }}
+          style={{ opacity, y: dragY, background: backgroundColor }}
           onDragEnd={(_, i) => {
             if (i.offset.y > 100 || i.velocity.y > 500) onClose();
             else dragY.set(0);
           }}
-          className="fixed inset-0 z-[100] bg-black flex flex-col touch-none overflow-hidden"
+          className="fixed inset-0 z-[100] flex flex-col touch-none overflow-hidden"
         >
-          {/* Background Blur */}
+          {/* Dynamic Background */}
+          <motion.div
+            animate={{ background: `linear-gradient(to bottom, ${primaryColor}40, ${backgroundColor})` }}
+            transition={{ duration: 1 }}
+            className="absolute inset-0 -z-20"
+          />
+
+          {/* Background Blur Image */}
           <div className="absolute inset-0 -z-10 overflow-hidden">
             <motion.img
               key={currentTrack.coverArt}
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 0.4 }}
+              transition={{ duration: 1 }}
               src={currentTrack.coverArt}
-              className="w-full h-full object-cover blur-[80px] scale-125 brightness-50"
+              className="w-full h-full object-cover blur-[100px] scale-125 brightness-75"
               alt=""
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+            {/* Grain Overlay */}
+            <div className="absolute inset-0 opacity-[0.05] mix-blend-overlay"
+                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
+            />
           </div>
 
-          {/* Drag Handle - This starts the modal drag */}
+          {/* Drag Handle */}
           <div 
             onPointerDown={(e) => dragControls.start(e)}
             className="h-12 w-full flex items-center justify-center cursor-grab active:cursor-grabbing z-20"
@@ -270,15 +295,24 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     key="art"
                     layoutId="albumArt"
                     initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: playerState.isPlaying ? 1 : 0.95 }}
+                    animate={{
+                        opacity: 1,
+                        scale: playerState.isPlaying ? 1 : 0.9
+                    }}
+                    style={{ scale: playerState.isPlaying ? beatScale : 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.3 }}
+                    transition={{ duration: 0.4, type: 'spring', bounce: 0.2 }}
                     className="relative w-full h-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden"
                   >
                      <img
                       src={currentTrack.coverArt}
                       className="w-full h-full object-cover"
                       alt="Album Art"
+                    />
+                    {/* Beat Glow Flash */}
+                    <motion.div
+                        style={{ opacity: glowOpacity, background: primaryColor }}
+                        className="absolute inset-0 mix-blend-overlay pointer-events-none"
                     />
                   </motion.div>
                 )}
@@ -290,22 +324,39 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               
               {/* Text Info */}
               <div className="text-center landscape:text-left">
-                <h1 className="text-2xl md:text-3xl font-bold text-white leading-tight line-clamp-1" title={currentTrack.title}>
+                <motion.h1
+                    animate={{ color: theme?.primary ? '#ffffff' : '#ffffff' }}
+                    className="text-2xl md:text-3xl font-bold leading-tight line-clamp-1"
+                    title={currentTrack.title}
+                >
                   {currentTrack.title}
-                </h1>
-                <p className="text-lg text-white/60 line-clamp-1 mt-1" title={currentTrack.artist}>
+                </motion.h1>
+                <motion.p
+                    animate={{ color: mutedColor }}
+                    className="text-lg line-clamp-1 mt-1 font-medium"
+                    title={currentTrack.artist}
+                >
                   {currentTrack.artist}
-                </p>
+                </motion.p>
               </div>
 
-              {/* Progress Slider (FIXED FOR IOS) */}
+              {/* Progress Slider */}
               <div className="group relative pt-4 pb-2">
-                <div className="relative h-1 w-full bg-white/20 rounded-full group-hover:h-2 transition-all">
-                  <div 
-                    className="absolute h-full bg-white rounded-full transition-all" 
+                <div className="relative h-1.5 w-full bg-white/10 rounded-full group-hover:h-2 transition-all overflow-hidden">
+                  <motion.div
+                    animate={{ backgroundColor: primaryColor }}
+                    className="absolute h-full rounded-full"
                     style={{ width: `${(scrubValue / safeDuration) * 100}%` }}
                   />
-                  {/* The Input - Improved z-index and event handling */}
+                  {/* Beat Pulse Overlay on Bar */}
+                  {playerState.isPlaying && (
+                      <motion.div
+                        animate={{ opacity: beat ? 0.5 : 0 }}
+                        transition={{ duration: 0.1 }}
+                        className="absolute h-full w-full bg-white mix-blend-overlay"
+                      />
+                  )}
+
                   <input
                     type="range"
                     min={0}
@@ -313,7 +364,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     step={0.1}
                     value={scrubValue}
                     onChange={handleSeekChange}
-                    // CRITICAL: Stop propagation so we don't drag the modal
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       setIsScrubbing(true);
@@ -322,7 +372,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     className="absolute inset-0 w-full h-6 -top-2.5 opacity-0 cursor-pointer z-50"
                   />
                 </div>
-                <div className="flex justify-between mt-2 text-xs font-medium text-white/40 font-mono">
+                <div className="flex justify-between mt-2 text-xs font-medium font-mono" style={{ color: mutedColor }}>
                   <span>{formatTime(scrubValue)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
@@ -332,38 +382,43 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
               <div className="flex items-center justify-between">
                 <button 
                     onClick={toggleShuffle} 
-                    className={`p-2 rounded-full transition-colors ${playerState.shuffle ? 'text-green-400 bg-white/10' : 'text-white/60 hover:text-white'}`}
+                    className={`p-2 rounded-full transition-colors`}
+                    style={{ color: playerState.shuffle ? primaryColor : mutedColor, backgroundColor: playerState.shuffle ? `${primaryColor}20` : 'transparent' }}
                 >
                   <Shuffle size={20} />
                 </button>
 
                 <div className="flex items-center gap-6">
-                  <button onClick={prevTrack} className="text-white/90 hover:text-white active:scale-95 transition-transform">
-                    <SkipBack size={28} fill="currentColor" />
+                  <button onClick={prevTrack} className="hover:scale-110 active:scale-90 transition-transform" style={{ color: secondaryColor }}>
+                    <SkipBack size={32} fill="currentColor" />
                   </button>
                   
-                  <button 
-                    onClick={togglePlay} 
-                    className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-black shadow-lg hover:scale-105 active:scale-95 transition-all"
+                  <motion.button
+                    onClick={togglePlay}
+                    whileTap={{ scale: 0.9 }}
+                    animate={{ scale: beat ? 1.05 : 1 }}
+                    style={{ backgroundColor: primaryColor, color: backgroundColor }}
+                    className="w-20 h-20 rounded-full flex items-center justify-center shadow-lg transition-colors"
                   >
                     {playerState.isPlaying ? 
-                      <Pause size={32} fill="currentColor" /> : 
-                      <Play size={32} fill="currentColor" className="ml-1" />
+                      <Pause size={36} fill="currentColor" /> :
+                      <Play size={36} fill="currentColor" className="ml-1" />
                     }
-                  </button>
+                  </motion.button>
                   
-                  <button onClick={nextTrack} className="text-white/90 hover:text-white active:scale-95 transition-transform">
-                    <SkipForward size={28} fill="currentColor" />
+                  <button onClick={nextTrack} className="hover:scale-110 active:scale-90 transition-transform" style={{ color: secondaryColor }}>
+                    <SkipForward size={32} fill="currentColor" />
                   </button>
                 </div>
 
                 <button 
                     onClick={toggleRepeat} 
-                    className={`p-2 relative rounded-full transition-colors ${playerState.repeat !== 'OFF' ? 'text-green-400 bg-white/10' : 'text-white/60 hover:text-white'}`}
+                    className={`p-2 relative rounded-full transition-colors`}
+                    style={{ color: playerState.repeat !== 'OFF' ? primaryColor : mutedColor, backgroundColor: playerState.repeat !== 'OFF' ? `${primaryColor}20` : 'transparent' }}
                 >
                   <Repeat size={20} />
                   {playerState.repeat === 'ONE' && (
-                    <span className="absolute top-1 right-1.5 text-[7px] bg-green-400 text-black px-0.5 rounded-[2px] font-bold leading-none">1</span>
+                    <span className="absolute top-1 right-1.5 text-[7px] px-0.5 rounded-[2px] font-bold leading-none" style={{ backgroundColor: primaryColor, color: backgroundColor }}>1</span>
                   )}
                 </button>
               </div>
@@ -375,7 +430,11 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     setShowLyrics(!showLyrics);
                     if (!showLyrics) setShowQueue(false);
                   }}
-                  className={`p-2.5 rounded-full transition-all ${showLyrics ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                  className={`p-3 rounded-full transition-all`}
+                  style={{
+                      backgroundColor: showLyrics ? primaryColor : 'rgba(255,255,255,0.05)',
+                      color: showLyrics ? backgroundColor : mutedColor
+                  }}
                 >
                   <Mic2 size={20} />
                 </button>
@@ -385,7 +444,11 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     setShowQueue(!showQueue);
                     if (!showQueue) setShowLyrics(false);
                   }}
-                  className={`p-2.5 rounded-full transition-all ${showQueue ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                  className={`p-3 rounded-full transition-all`}
+                  style={{
+                      backgroundColor: showQueue ? primaryColor : 'rgba(255,255,255,0.05)',
+                      color: showQueue ? backgroundColor : mutedColor
+                  }}
                 >
                   {showQueue ? <ChevronDown size={20} /> : <ListMusic size={20} />}
                 </button>

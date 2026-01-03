@@ -3,7 +3,11 @@
 > vite
 
 
-  VITE v6.4.1  ready in 262 ms
+  VITE v6.4.1  ready in 275 ms
 
   ➜  Local:   http://localhost:3000/
   ➜  Network: http://192.168.0.2:3000/
+8:42:31 AM [vite] (client) hmr update /src/components/FullPlayer.tsx, /index.css?direct
+8:44:40 AM [vite] (client) hmr update /index.css?direct, /src/components/FullPlayer.tsx
+8:46:03 AM [vite] (client) hmr update /src/App.tsx, /index.css?direct
+8:48:02 AM [vite] (client) hmr update /src/components/FullPlayer.tsx, /index.css?direct
