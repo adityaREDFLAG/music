@@ -252,14 +252,14 @@ export const useAudioPlayer = (
           return;
       }
       
-      // Check if the audio metadata has been loaded
-      if (isNaN(audioElement.duration) || !isFinite(audioElement.duration)) {
-          console.warn('Cannot seek: duration not available. Current duration:', audioElement.duration);
+      // Check if the audio metadata has been loaded and duration is valid
+      const d = audioElement.duration;
+      if (isNaN(d) || !isFinite(d) || d <= 0) {
+          console.warn('Cannot seek: duration not available or zero. Current duration:', d);
           return;
       }
       
-      const d = audioElement.duration;
-      const validDuration = !isNaN(d) && isFinite(d) ? d : 0;
+      const validDuration = d;
       const t = Math.max(0, Math.min(time, validDuration));
       
       try {
