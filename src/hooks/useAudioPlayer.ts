@@ -414,6 +414,12 @@ export const useAudioPlayer = (
 
     const t = Math.max(0, Math.min(time, isNaN(d) ? 0 : d));
 
+    // Log debug info for seeking issues
+    if (isNaN(t)) {
+        console.warn('[useAudioPlayer] scrub attempted with NaN time');
+        return;
+    }
+
     // Immediate Audio Update
     audioElement.currentTime = t;
     // Immediate UI Update
@@ -444,6 +450,10 @@ export const useAudioPlayer = (
       if (!audioElement) return;
       
       let d = audioElement.duration;
+
+      // DEBUG: Log seek attempt
+      console.debug(`[useAudioPlayer] handleSeek: time=${time}, duration=${d}, readyState=${audioElement.readyState}`);
+
       // Fallback to library track duration if audio element doesn't know yet
       if ((isNaN(d) || d === 0) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
         d = libraryTracks[player.currentTrackId].duration;
@@ -567,6 +577,11 @@ export const useAudioPlayer = (
           updatePositionState();
       };
 
+      const onSeeking = () => {
+          // Optional: Update UI during seek if needed, or just log
+          // console.debug('[useAudioPlayer] seeking event', audioElement.currentTime);
+      };
+
       const onDurationChange = () => {
          const d = audioElement.duration;
          setDuration(!isNaN(d) ? d : 0);
@@ -595,6 +610,7 @@ export const useAudioPlayer = (
 
       audioElement.addEventListener('timeupdate', onTimeUpdate);
       audioElement.addEventListener('seeked', onSeeked);
+      audioElement.addEventListener('seeking', onSeeking);
       audioElement.addEventListener('loadedmetadata', onDurationChange);
       audioElement.addEventListener('ended', onEnded);
       audioElement.addEventListener('pause', onPause);
@@ -603,6 +619,7 @@ export const useAudioPlayer = (
       return () => {
           audioElement.removeEventListener('timeupdate', onTimeUpdate);
           audioElement.removeEventListener('seeked', onSeeked);
+          audioElement.removeEventListener('seeking', onSeeking);
           audioElement.removeEventListener('loadedmetadata', onDurationChange);
           audioElement.removeEventListener('ended', onEnded);
           audioElement.removeEventListener('pause', onPause);

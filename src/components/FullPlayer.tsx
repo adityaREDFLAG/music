@@ -117,6 +117,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   }, [beat, beatScale, glowOpacity, isPlayerOpen]);
 
   const safeDuration = Math.max(duration, 0.01);
+  const isSeekable = duration > 0 && !isNaN(duration);
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
@@ -130,6 +131,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+      if (!isSeekable) return;
       const value = Number((e.target as HTMLInputElement).value);
 
       // Update local state for slider UI
@@ -383,9 +385,10 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     max={safeDuration}
                     step={0.1} // High resolution for smooth dragging
                     value={displayValue}
+                    disabled={!isSeekable}
                     onChange={handleScrubChange}
-                    onPointerDown={handleScrubInteractionStart}
-                    className="absolute -inset-x-0 -top-2.5 w-full h-6 opacity-0 cursor-pointer z-50"
+                    onPointerDown={(e) => isSeekable && handleScrubInteractionStart(e)}
+                    className={`absolute -inset-x-0 -top-2.5 w-full h-6 opacity-0 z-50 ${isSeekable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                     style={{ pointerEvents: 'auto', bottom: '-8px' }}
                   />
 
