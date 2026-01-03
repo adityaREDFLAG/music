@@ -127,8 +127,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   // --- SCRUBBING HANDLERS ---
   const handleScrubStart = () => {
       if (startScrub) startScrub();
-      // Initialize local value to current time to start dragging smoothly
-      setLocalScrubValue(currentTime);
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
