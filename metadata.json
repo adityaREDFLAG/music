@@ -1,5 +1,5 @@
 {
-  "name": "Vibe - Material 3 Music Player",
-  "description": "A local-first music player with Material 3 Expressive design, featuring dynamic theming, offline support, and smooth iPad-optimized gestures.",
+  "name": "adi music",
+  "description": "A local-first music player, featuring dynamic theming, offline support, and smooth iPad-optimized gestures.",
   "requestFramePermissions": []
 }
