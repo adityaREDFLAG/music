@@ -9,6 +9,7 @@ import { Track, PlayerState, Playlist } from '../types';
 import { dbService } from '../db';
 import Playlists from './Playlists';
 import AddToPlaylistModal from './AddToPlaylistModal';
+import { getOrFetchArtistImage } from '../utils/artistImage';
 
 // --- TYPES ---
 type LibraryTab = 'Songs' | 'Albums' | 'Artists' | 'Playlists' | 'Settings';
@@ -47,38 +48,62 @@ const SkeletonRow = () => (
 );
 
 // Optimized Artist Row
-const ArtistRow = memo(({ artist, trackCount, coverArt, onClick }: { 
-    artist: string; trackCount: number; coverArt?: string; onClick: () => void; 
-}) => (
-    <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        whileTap={{ scale: 0.98 }}
-        onClick={onClick}
-        className="flex items-center gap-4 p-2 rounded-2xl cursor-pointer hover:bg-surface-variant/40 transition-colors group"
-    >
-        <div className="w-16 h-16 rounded-full overflow-hidden bg-surface-variant flex-shrink-0 shadow-sm relative">
-            {coverArt ? (
-                <img src={coverArt} alt={artist} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
-            ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface-variant to-surface-variant-dim">
-                    <Users className="w-6 h-6 text-on-surface/40" />
-                </div>
-            )}
-        </div>
-        <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold truncate text-on-surface">{artist}</h3>
-            <p className="text-sm text-on-surface/60">{trackCount} {trackCount === 1 ? 'Song' : 'Songs'}</p>
-        </div>
-        <div className="w-10 h-10 rounded-full border border-surface-variant/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <Play className="w-5 h-5 fill-current text-primary ml-0.5" />
-        </div>
-    </motion.div>
-));
+// Handles lazy loading of artist images
+const ArtistRow = memo(({ artist, displayArtist, trackCount, coverArt, onClick }: {
+    artist: string; displayArtist: string; trackCount: number; coverArt?: string; onClick: () => void;
+}) => {
+    const [image, setImage] = useState<string | undefined>(coverArt);
+
+    useEffect(() => {
+        let active = true;
+        // If we don't have a coverArt (album art fallback), or we want to try to get a better artist image
+        // Actually, let's prioritize the Artist Image from Wikipedia if available, otherwise fallback to coverArt
+
+        const load = async () => {
+             const wikiImage = await getOrFetchArtistImage(displayArtist);
+             if (active) {
+                 if (wikiImage) {
+                     setImage(wikiImage);
+                 } else if (!image && coverArt) {
+                     // Fallback to what was passed (album art)
+                     setImage(coverArt);
+                 }
+             }
+        };
+        load();
+        return () => { active = false; };
+    }, [displayArtist, coverArt]);
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onClick}
+            className="flex items-center gap-4 p-2 rounded-2xl cursor-pointer hover:bg-surface-variant/40 transition-colors group"
+        >
+            <div className="w-16 h-16 rounded-full overflow-hidden bg-surface-variant flex-shrink-0 shadow-sm relative">
+                {image ? (
+                    <img src={image} alt={displayArtist} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface-variant to-surface-variant-dim">
+                        <Users className="w-6 h-6 text-on-surface/40" />
+                    </div>
+                )}
+            </div>
+            <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold truncate text-on-surface">{displayArtist}</h3>
+                <p className="text-sm text-on-surface/60">{trackCount} {trackCount === 1 ? 'Song' : 'Songs'}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full border border-surface-variant/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <Play className="w-5 h-5 fill-current text-primary ml-0.5" />
+            </div>
+        </motion.div>
+    );
+});
 ArtistRow.displayName = 'ArtistRow';
 
 // Optimized Track Row
-// Note: Handlers now accept just the ID to avoid creating new closures in parent
 const TrackRow = memo(({ 
   track, index, onPlay, isPlaying, isCurrentTrack, onDelete, onAddToPlaylist 
 }: { 
@@ -90,14 +115,11 @@ const TrackRow = memo(({
   onDelete: (id: string) => void;
   onAddToPlaylist: (id: string) => void;
 }) => {
-    // Avoid creating function inside render if possible, but here wrappers are needed for specific track ID
-    // We rely on the parent passing stable function references for onPlay/onDelete
-    
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: Math.min(index * 0.03, 0.3), duration: 0.2 }} // Cap delay
+            transition={{ delay: Math.min(index * 0.03, 0.3), duration: 0.2 }}
             className={`group relative flex items-center gap-4 p-2 rounded-2xl transition-all cursor-pointer border border-transparent ${
                 isCurrentTrack 
                 ? 'bg-primary/10 border-primary/5' 
@@ -336,6 +358,7 @@ const Library: React.FC<LibraryProps> = ({
   const [playlists, setPlaylists] = useState<Record<string, Playlist>>({});
   const [tracksMap, setTracksMap] = useState<Record<string, Track>>({});
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
+  const [selectedArtistKey, setSelectedArtistKey] = useState<string | null>(null); // New: Store normalized key
   const [sortOption, setSortOption] = useState<SortOption>('added');
   
   // Modal State
@@ -354,19 +377,40 @@ const Library: React.FC<LibraryProps> = ({
   }, [libraryTab, refreshLibrary]);
 
   // Derived: Artists
-  // Optimization: Memoize this calculation so it only runs when tracks change
+  // Optimization: Merging logic
   const artistsList = useMemo(() => {
-    const map = new Map<string, { count: number; cover?: string }>();
+    // Key: Normalized Name (lower cased)
+    // Value: { display: string, count: number, cover: string }
+    const map = new Map<string, { display: string; count: number; cover?: string }>();
+
     filteredTracks.forEach(t => {
         const artist = t.artist || 'Unknown Artist';
-        const current = map.get(artist) || { count: 0 };
-        map.set(artist, {
-            count: current.count + 1,
-            cover: current.cover || t.coverArt 
-        });
+        const normalized = artist.trim().toLowerCase();
+
+        const current = map.get(normalized);
+
+        if (current) {
+             map.set(normalized, {
+                 display: current.display, // Keep the first display name encountered, or logic to find best?
+                 count: current.count + 1,
+                 cover: current.cover || t.coverArt
+             });
+        } else {
+             map.set(normalized, {
+                 display: artist, // Use this casing as the display name
+                 count: 1,
+                 cover: t.coverArt
+             });
+        }
     });
+
     return Array.from(map.entries())
-        .map(([name, data]) => ({ name, count: data.count, cover: data.cover }))
+        .map(([key, data]) => ({
+            key, // normalized key for filtering
+            name: data.display,
+            count: data.count,
+            cover: data.cover
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
   }, [filteredTracks]);
 
@@ -383,11 +427,15 @@ const Library: React.FC<LibraryProps> = ({
   const handlePlayTrack = useCallback((id: string) => {
       // Create the queue based on current view
       let queue = sortedTracks.map(t => t.id);
-      if (selectedArtist) {
-          queue = sortedTracks.filter(t => t.artist === selectedArtist).map(t => t.id);
+
+      // If we are in artist view, filter by normalized key
+      if (selectedArtistKey) {
+          queue = sortedTracks
+            .filter(t => (t.artist || 'Unknown Artist').trim().toLowerCase() === selectedArtistKey)
+            .map(t => t.id);
       }
       playTrack(id, { customQueue: queue });
-  }, [playTrack, sortedTracks, selectedArtist]);
+  }, [playTrack, sortedTracks, selectedArtistKey]);
 
   const handleDelete = useCallback((id: string) => {
     if(confirm('Delete track permanently?')) {
@@ -435,8 +483,8 @@ const Library: React.FC<LibraryProps> = ({
   };
 
   // View Helpers
-  const tracksToRender = selectedArtist 
-    ? sortedTracks.filter(t => t.artist === selectedArtist)
+  const tracksToRender = selectedArtistKey
+    ? sortedTracks.filter(t => (t.artist || 'Unknown Artist').trim().toLowerCase() === selectedArtistKey)
     : sortedTracks;
 
   return (
@@ -458,7 +506,7 @@ const Library: React.FC<LibraryProps> = ({
                     {(['Songs', 'Albums', 'Artists', 'Playlists'] as LibraryTab[]).map((tab) => (
                     <button
                         key={tab}
-                        onClick={() => { setLibraryTab(tab); setSelectedArtist(null); }}
+                        onClick={() => { setLibraryTab(tab); setSelectedArtist(null); setSelectedArtistKey(null); }}
                         className={`px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all border ${
                         libraryTab === tab
                             ? 'bg-primary text-on-primary border-primary'
@@ -472,7 +520,7 @@ const Library: React.FC<LibraryProps> = ({
             </div>
 
             {/* Controls Row (Songs View Only) */}
-            {libraryTab === 'Songs' && !selectedArtist && (
+            {libraryTab === 'Songs' && !selectedArtistKey && (
                 <div className="flex items-center gap-3 my-4 animate-in slide-in-from-top-2 fade-in duration-300">
                     <button 
                         onClick={handleShuffleAll}
@@ -549,12 +597,13 @@ const Library: React.FC<LibraryProps> = ({
 
                         {/* VIEW: ARTISTS */}
                         {libraryTab === 'Artists' && (
-                            selectedArtist ? (
+                            selectedArtistKey ? (
                                 <motion.div key="artist-detail" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}>
                                     <div className="flex items-center gap-4 mb-6 sticky top-0 bg-background/80 backdrop-blur-md z-10 py-2">
-                                        <button onClick={() => setSelectedArtist(null)} className="p-2 -ml-2 rounded-full hover:bg-surface-variant/50">
+                                        <button onClick={() => { setSelectedArtist(null); setSelectedArtistKey(null); }} className="p-2 -ml-2 rounded-full hover:bg-surface-variant/50">
                                             <ChevronLeft className="w-6 h-6" />
                                         </button>
+                                        {/* We can use the Artist Image here too, but for now just name */}
                                         <h2 className="text-2xl font-bold">{selectedArtist}</h2>
                                     </div>
                                     <div className="flex flex-col gap-1">
@@ -576,11 +625,12 @@ const Library: React.FC<LibraryProps> = ({
                                 <motion.div key="artists-list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
                                     {artistsList.map((artist) => (
                                         <ArtistRow
-                                            key={artist.name}
-                                            artist={artist.name}
+                                            key={artist.key}
+                                            artist={artist.key}
+                                            displayArtist={artist.name}
                                             trackCount={artist.count}
                                             coverArt={artist.cover}
-                                            onClick={() => setSelectedArtist(artist.name)}
+                                            onClick={() => { setSelectedArtist(artist.name); setSelectedArtistKey(artist.key); }}
                                         />
                                     ))}
                                 </motion.div>

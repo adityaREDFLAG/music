@@ -2,7 +2,14 @@
 import { Track, Playlist } from './types';
 
 const DB_NAME = 'vibe_music_db';
-const DB_VERSION = 2; // Incremented version to ensure schema updates if needed, though we check objectStoreNames
+const DB_VERSION = 3; // Incremented for 'artists' store
+
+export interface ArtistMetadata {
+  name: string;
+  imageUrl?: string;
+  bio?: string;
+  fetchedAt: number;
+}
 
 export class MusicDB {
   private db: IDBDatabase | null = null;
@@ -28,6 +35,9 @@ export class MusicDB {
         }
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings');
+        }
+        if (!db.objectStoreNames.contains('artists')) {
+          db.createObjectStore('artists', { keyPath: 'name' });
         }
       };
     });
@@ -138,6 +148,22 @@ export class MusicDB {
       const req = this.db!.transaction('settings').objectStore('settings').get(key);
       req.onsuccess = () => res(req.result);
     });
+  }
+
+  // --- Artist Metadata ---
+  async getArtist(name: string): Promise<ArtistMetadata | undefined> {
+      if (!this.db) return;
+      return new Promise((res) => {
+          const req = this.db!.transaction('artists').objectStore('artists').get(name);
+          req.onsuccess = () => res(req.result);
+      });
+  }
+
+  async saveArtist(artist: ArtistMetadata): Promise<void> {
+      if (!this.db) return;
+      const tx = this.db.transaction('artists', 'readwrite');
+      tx.objectStore('artists').put(artist);
+      return new Promise((res) => (tx.oncomplete = () => res()));
   }
 }
 
