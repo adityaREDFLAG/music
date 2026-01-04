@@ -27,6 +27,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     let mounted = true;
     const load = async () => {
       // If the track already has lyrics, use them
+      // NOTE: We rely on the parent/Library to update the track object with better lyrics if available
       if (track.lyrics && !track.lyrics.error) {
         setLyrics(track.lyrics);
         setLoading(false);
@@ -53,7 +54,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     };
     load();
     return () => { mounted = false; };
-  }, [track.id, track.title, track.artist]);
+  }, [track.id, track.title, track.artist]); // Re-run if track changes
 
   // Sync Active Line
   useEffect(() => {
@@ -143,7 +144,48 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
             {lyrics.lines.map((line, i) => {
                 const isActive = i === activeLineIndex;
                 const isPast = i < activeLineIndex;
+                
+                // Word-level Sync Rendering
+                if (lyrics.isWordSynced && line.words && line.words.length > 0) {
+                     return (
+                        <motion.div
+                            key={i}
+                            onClick={() => onSeek(line.time)}
+                            initial={false}
+                            animate={{
+                                scale: isActive ? 1.05 : 1,
+                                opacity: isActive ? 1 : isPast ? 0.4 : 0.6,
+                                filter: isActive ? 'blur(0px)' : 'blur(0.5px)'
+                            }}
+                            className="cursor-pointer origin-left"
+                        >
+                             <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
+                               {line.words.map((word, wIdx) => {
+                                   const isWordActive = isActive && currentTime >= word.time && 
+                                       (wIdx === line.words!.length - 1 || currentTime < line.words![wIdx + 1].time);
+                                   
+                                   // Also highlight past words in the active line
+                                   const isWordPast = isActive && currentTime >= word.time;
 
+                                   return (
+                                       <span 
+                                         key={wIdx}
+                                         className={`transition-colors duration-200 ${
+                                             isActive 
+                                               ? (isWordPast ? 'text-white drop-shadow-md' : 'text-white/40')
+                                               : 'text-inherit' 
+                                         }`}
+                                       >
+                                           {word.text}
+                                       </span>
+                                   );
+                               })}
+                             </p>
+                        </motion.div>
+                    );
+                }
+
+                // Standard Line Sync
                 return (
                     <motion.div
                         key={i}
