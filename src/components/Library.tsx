@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Music, Play, Shuffle, ListFilter, Settings, Trash2, 
   PlusCircle, Loader2, X, Mic2, Users, ChevronLeft, 
-  Disc, Heart, Check 
+  Disc, Heart, Check, Sparkles, Key
 } from 'lucide-react';
 import { Track, PlayerState, Playlist } from '../types';
 import { dbService } from '../db';
@@ -195,82 +195,135 @@ const ToggleRow = ({ label, subLabel, checked, onChange, children }: any) => (
     </div>
 );
 
-const SettingsTab = ({ playerState, setPlayerState }: { playerState: PlayerState, setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>> }) => (
-    <motion.div 
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} 
-        className="flex flex-col gap-6 p-1 max-w-2xl mx-auto w-full"
-    >
-        <section>
-            <h2 className="text-sm font-bold text-on-surface/50 uppercase tracking-wider mb-3">Playback</h2>
-            <div className="bg-surface-variant/20 border border-white/5 rounded-3xl p-5 flex flex-col gap-4">
-                <ToggleRow 
-                    label="Automix" 
-                    subLabel="Smart transitions & AI blending" 
-                    checked={playerState.automixEnabled} 
-                    onChange={(val: boolean) => setPlayerState(p => ({ ...p, automixEnabled: val }))}
-                >
-                    <div className="flex flex-col gap-3 pt-2">
-                        <span className="text-xs font-medium text-on-surface/80">Transition Style</span>
-                        <div className="grid grid-cols-3 gap-2">
-                            {['classic', 'smart', 'shuffle'].map((mode) => (
-                                <button
-                                    key={mode}
-                                    onClick={() => setPlayerState(p => ({ ...p, automixMode: mode as any }))}
-                                    className={`px-3 py-2 rounded-xl text-xs font-medium capitalize transition-all border ${
-                                        playerState.automixMode === mode
-                                        ? 'bg-primary/20 border-primary text-primary'
-                                        : 'bg-surface-variant/50 border-transparent text-on-surface/70 hover:bg-surface-variant'
-                                    }`}
-                                >
-                                    {mode}
-                                </button>
-                            ))}
+const SettingsTab = ({ playerState, setPlayerState }: { playerState: PlayerState, setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>> }) => {
+    const [wordSyncEnabled, setWordSyncEnabled] = useState(false);
+    const [geminiKey, setGeminiKey] = useState('');
+
+    useEffect(() => {
+        dbService.getSetting<boolean>('wordSyncEnabled').then(val => setWordSyncEnabled(val || false));
+        dbService.getSetting<string>('geminiApiKey').then(val => setGeminiKey(val || ''));
+    }, []);
+
+    const handleWordSyncToggle = (enabled: boolean) => {
+        setWordSyncEnabled(enabled);
+        dbService.setSetting('wordSyncEnabled', enabled);
+    };
+
+    const handleKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setGeminiKey(val);
+        dbService.setSetting('geminiApiKey', val);
+    };
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} 
+            className="flex flex-col gap-6 p-1 max-w-2xl mx-auto w-full"
+        >
+            <section>
+                <h2 className="text-sm font-bold text-on-surface/50 uppercase tracking-wider mb-3">Playback</h2>
+                <div className="bg-surface-variant/20 border border-white/5 rounded-3xl p-5 flex flex-col gap-4">
+                    <ToggleRow 
+                        label="Automix" 
+                        subLabel="Smart transitions & AI blending" 
+                        checked={playerState.automixEnabled} 
+                        onChange={(val: boolean) => setPlayerState(p => ({ ...p, automixEnabled: val }))}
+                    >
+                        <div className="flex flex-col gap-3 pt-2">
+                            <span className="text-xs font-medium text-on-surface/80">Transition Style</span>
+                            <div className="grid grid-cols-3 gap-2">
+                                {['classic', 'smart', 'shuffle'].map((mode) => (
+                                    <button
+                                        key={mode}
+                                        onClick={() => setPlayerState(p => ({ ...p, automixMode: mode as any }))}
+                                        className={`px-3 py-2 rounded-xl text-xs font-medium capitalize transition-all border ${
+                                            playerState.automixMode === mode
+                                            ? 'bg-primary/20 border-primary text-primary'
+                                            : 'bg-surface-variant/50 border-transparent text-on-surface/70 hover:bg-surface-variant'
+                                        }`}
+                                    >
+                                        {mode}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                </ToggleRow>
+                    </ToggleRow>
 
-                <div className="h-px bg-surface-variant/50" />
+                    <div className="h-px bg-surface-variant/50" />
 
-                <ToggleRow 
-                    label="Crossfade" 
-                    subLabel="Overlap songs for smoothness" 
-                    checked={playerState.crossfadeEnabled} 
-                    onChange={(val: boolean) => setPlayerState(p => ({ ...p, crossfadeEnabled: val }))}
-                >
-                    <div className="flex flex-col gap-2 pt-1">
-                        <div className="flex justify-between text-xs text-on-surface/70">
-                            <span>Overlap</span>
-                            <span>{playerState.crossfadeDuration || 5}s</span>
+                    <ToggleRow 
+                        label="Crossfade" 
+                        subLabel="Overlap songs for smoothness" 
+                        checked={playerState.crossfadeEnabled} 
+                        onChange={(val: boolean) => setPlayerState(p => ({ ...p, crossfadeEnabled: val }))}
+                    >
+                        <div className="flex flex-col gap-2 pt-1">
+                            <div className="flex justify-between text-xs text-on-surface/70">
+                                <span>Overlap</span>
+                                <span>{playerState.crossfadeDuration || 5}s</span>
+                            </div>
+                            <input
+                                type="range" min="1" max="12" step="1"
+                                value={playerState.crossfadeDuration || 5}
+                                onChange={(e) => setPlayerState(p => ({ ...p, crossfadeDuration: Number(e.target.value) }))}
+                                className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
+                            />
                         </div>
-                        <input
-                            type="range" min="1" max="12" step="1"
-                            value={playerState.crossfadeDuration || 5}
-                            onChange={(e) => setPlayerState(p => ({ ...p, crossfadeDuration: Number(e.target.value) }))}
-                            className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
-                        />
-                    </div>
-                </ToggleRow>
+                    </ToggleRow>
 
-                <div className="h-px bg-surface-variant/50" />
-                
-                <ToggleRow 
-                    label="Normalize Volume" 
-                    subLabel="Consistent loudness across tracks"
-                    checked={playerState.normalizationEnabled}
-                    onChange={(val: boolean) => setPlayerState(p => ({ ...p, normalizationEnabled: val }))} 
-                />
-            </div>
-        </section>
+                    <div className="h-px bg-surface-variant/50" />
+                    
+                    <ToggleRow 
+                        label="Normalize Volume" 
+                        subLabel="Consistent loudness across tracks"
+                        checked={playerState.normalizationEnabled}
+                        onChange={(val: boolean) => setPlayerState(p => ({ ...p, normalizationEnabled: val }))} 
+                    />
+                </div>
+            </section>
 
-        <section>
-            <h2 className="text-sm font-bold text-on-surface/50 uppercase tracking-wider mb-3">About</h2>
-            <div className="bg-surface-variant/20 border border-white/5 rounded-3xl p-5 text-center">
-                <p className="font-bold text-on-surface">Adi Music</p>
-                <p className="text-xs text-on-surface/50 mt-1">v1.2.0 • Build 2024</p>
-            </div>
-        </section>
-    </motion.div>
-);
+            <section>
+                <h2 className="text-sm font-bold text-on-surface/50 uppercase tracking-wider mb-3">Experimental</h2>
+                <div className="bg-surface-variant/20 border border-white/5 rounded-3xl p-5 flex flex-col gap-4">
+                     <ToggleRow
+                        label="Word-by-word Lyrics"
+                        subLabel="Use AI to generate synced lyrics (Requires Gemini API Key)"
+                        checked={wordSyncEnabled}
+                        onChange={handleWordSyncToggle}
+                    >
+                        <div className="flex flex-col gap-2 pt-1">
+                            <div className="flex items-center gap-2 text-xs font-medium text-on-surface/80">
+                                <Sparkles className="w-3 h-3 text-primary" />
+                                <span>Gemini API Key</span>
+                            </div>
+                            <div className="relative">
+                                <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface/40" />
+                                <input 
+                                    type="password"
+                                    value={geminiKey}
+                                    onChange={handleKeyChange}
+                                    placeholder="Enter your API Key"
+                                    className="w-full h-10 pl-10 pr-4 bg-surface-variant/50 rounded-xl text-sm text-on-surface placeholder:text-on-surface/30 border border-transparent focus:border-primary/50 focus:bg-surface-variant outline-none transition-all"
+                                />
+                            </div>
+                             <p className="text-[10px] text-on-surface/40 leading-relaxed">
+                                Your key is stored locally on your device and never sent to our servers.
+                            </p>
+                        </div>
+                    </ToggleRow>
+                </div>
+            </section>
+
+            <section>
+                <h2 className="text-sm font-bold text-on-surface/50 uppercase tracking-wider mb-3">About</h2>
+                <div className="bg-surface-variant/20 border border-white/5 rounded-3xl p-5 text-center">
+                    <p className="font-bold text-on-surface">Adi Music</p>
+                    <p className="text-xs text-on-surface/50 mt-1">v1.2.0 • Build 2024</p>
+                </div>
+            </section>
+        </motion.div>
+    );
+};
 
 
 // --- MAIN LIBRARY COMPONENT ---
