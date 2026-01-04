@@ -2,26 +2,137 @@ import { Lyrics, LyricLine, Track, LyricWord } from '../types';
 import { dbService } from '../db';
 
 /**
- * Parses LRC format: [mm:ss.xx] Lyrics
+ * Parses LRC format.
+ * Supports standard: [mm:ss.xx] Lyrics
+ * Supports enhanced (A-LRC): [mm:ss.xx] <mm:ss.xx> word <mm:ss.xx> word ...
  */
-const parseLrc = (lrc: string): LyricLine[] => {
+export const parseLrc = (lrc: string): LyricLine[] => {
   const lines: LyricLine[] = [];
-  const regex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$/;
+  // Regex to match the start timestamp and the rest of the line
+  const lineRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$/;
 
-  lrc.split('\n').forEach(line => {
-    const trimmed = line.trim();
-    const match = trimmed.match(regex);
+  lrc.split('\n').forEach(lineStr => {
+    const trimmed = lineStr.trim();
+    if (!trimmed) return;
+
+    const match = trimmed.match(lineRegex);
     if (match) {
       const minutes = parseInt(match[1], 10);
       const seconds = parseInt(match[2], 10);
       const milliseconds = parseInt(match[3], 10);
-      // Determine if milliseconds are 2 or 3 digits
       const msDivisor = match[3].length === 3 ? 1000 : 100;
-      const totalSeconds = minutes * 60 + seconds + milliseconds / msDivisor;
-      const text = match[4].trim();
+      const startTime = minutes * 60 + seconds + milliseconds / msDivisor;
 
-      if (text) {
-        lines.push({ time: totalSeconds, text });
+      let rawText = match[4].trim();
+
+      // Check for enhanced lyrics timestamps: <mm:ss.xx>
+      // Example: "I <00:12.50> love <00:13.00> you"
+      // Note: The first word's time usually matches the line time, but enhanced lyrics might explicit it or omit it.
+      // Common format: [time] word <time> word <time> ...
+
+      // We will look for <mm:ss.xx> patterns.
+      const wordTimestampRegex = /<(\d{2}):(\d{2})\.(\d{2,3})>/g;
+      const hasWordTimestamps = wordTimestampRegex.test(rawText);
+
+      if (hasWordTimestamps) {
+        const words: LyricWord[] = [];
+        // Split by timestamp to get words and times
+        // Strategy: iterate through the string and extract time-word pairs.
+
+        // This is tricky because the format can vary.
+        // Format A: [start] Word <time> Word <time> Word...
+        // Format B: [start] <start> Word <time> Word...
+
+        // Let's preserve the original text for the line, but strip timestamps
+        const cleanText = rawText.replace(wordTimestampRegex, '').replace(/\s+/g, ' ').trim();
+
+        // Now extract words with their times.
+        // We start with the line start time.
+        let currentTime = startTime;
+        let lastIndex = 0;
+
+        // Reset regex
+        wordTimestampRegex.lastIndex = 0;
+        let wordMatch;
+
+        // This simple splitting might fail if words are complex.
+        // Let's use a split approach.
+        const parts = rawText.split(wordTimestampRegex);
+        // If rawText is "Word1 <00:01.00> Word2", split gives ["Word1 ", "00", "01", "00", " Word2"] if using capturing groups
+        // Capturing groups are (mm), (ss), (ms).
+
+        // A better way: match all occurrences of <time> or text segments.
+        // But let's look at how most A-LRC are structured.
+        // Usually: Word <time> Word <time>
+        // The first word starts at `startTime`.
+        // The timestamp <T> indicates the start of the *next* word usually, or end of previous?
+        // Actually, A-LRC spec says <time> is the start time of the word following it? Or preceding?
+        // Actually, in Karaoke LRC: "Word <time> Word" -> "Word" is sung until <time>.
+        // BUT in some formats (like Spotify/Musixmatch), it is "Word <time> Word" where <time> is start of 2nd word?
+
+        // Let's assume standard Enhanced LRC:
+        // [mm:ss.xx] <mm:ss.xx> Word <mm:ss.xx> Word
+        // Or
+        // [mm:ss.xx] Word <mm:ss.xx> Word
+
+        // Let's treat it as:
+        // Any text BEFORE the first <timestamp> belongs to `startTime`.
+        // Text AFTER <timestamp> belongs to that timestamp.
+
+        // We can split by `<` which starts a tag.
+
+        const segments = rawText.split('<');
+        // Example: "Word1 <00:12.50> Word2" -> ["Word1 ", "00:12.50> Word2"]
+        // Example: "<00:12.00> Word1 <00:12.50> Word2" -> ["", "00:12.00> Word1 ", "00:12.50> Word2"]
+
+        segments.forEach((seg, index) => {
+            if (index === 0) {
+                // Text before any <time> tag
+                const w = seg.trim();
+                if (w) {
+                    words.push({ time: startTime, text: w });
+                }
+            } else {
+                // Starts with timestamp like "00:12.50> Word..."
+                const closeIndex = seg.indexOf('>');
+                if (closeIndex !== -1) {
+                    const timeStr = seg.substring(0, closeIndex); // "00:12.50"
+                    const content = seg.substring(closeIndex + 1).trim(); // " Word..."
+
+                    const tm = timeStr.match(/^(\d{2}):(\d{2})\.(\d{2,3})$/);
+                    if (tm) {
+                        const m = parseInt(tm[1], 10);
+                        const s = parseInt(tm[2], 10);
+                        const msVal = parseInt(tm[3], 10);
+                        const div = tm[3].length === 3 ? 1000 : 100;
+                        const t = m * 60 + s + msVal / div;
+
+                        if (content) {
+                            words.push({ time: t, text: content });
+                        }
+                    } else {
+                         // Fallback if bad timestamp, append to previous word or ignore?
+                         // Just append as text to previous word if exists
+                         if (words.length > 0 && content) {
+                             words[words.length - 1].text += " " + content;
+                         }
+                    }
+                }
+            }
+        });
+
+        // If we found words, use them
+        if (words.length > 0) {
+            lines.push({ time: startTime, text: cleanText, words });
+        } else {
+             lines.push({ time: startTime, text: cleanText });
+        }
+
+      } else {
+        // Standard line
+        if (rawText) {
+          lines.push({ time: startTime, text: rawText });
+        }
       }
     }
   });
@@ -179,8 +290,10 @@ export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
       if (wordSyncEnabled && track.lyrics.isWordSynced) {
           return track.lyrics;
       }
+      // If we don't need word sync, or don't have a key, line sync is fine
       if (!wordSyncEnabled || !geminiApiKey) {
-          return track.lyrics;
+          // Check if we have synced lyrics at all
+          if (track.lyrics.synced) return track.lyrics;
       }
   }
 
@@ -195,17 +308,25 @@ export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
           const data = await lrcRes.json();
           if (data.syncedLyrics) {
               lrcData = { synced: data.syncedLyrics, plain: data.plainLyrics };
+
+              // Parse using enhanced parser
+              const parsedLines = parseLrc(data.syncedLyrics);
+              const hasWordSync = parsedLines.some(l => l.words && l.words.length > 0);
+
               standardResult = {
-                  lines: parseLrc(data.syncedLyrics),
+                  lines: parsedLines,
                   synced: true,
-                  plain: data.plainLyrics
+                  isWordSynced: hasWordSync,
+                  plain: data.plainLyrics,
+                  error: false
               };
           } else if (data.plainLyrics) {
               lrcData = { plain: data.plainLyrics };
               standardResult = {
                   lines: [],
                   synced: false,
-                  plain: data.plainLyrics
+                  plain: data.plainLyrics,
+                  error: false
               };
           }
       }
@@ -225,7 +346,8 @@ export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
                   standardResult = {
                       lines: [],
                       synced: false,
-                      plain: data.lyrics
+                      plain: data.lyrics,
+                      error: false
                   };
               }
           }
@@ -235,7 +357,8 @@ export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
   }
 
   // 4. Upgrade with Gemini if enabled
-  if (wordSyncEnabled && geminiApiKey) {
+  // ONLY if standard result is NOT word synced already
+  if (wordSyncEnabled && geminiApiKey && !standardResult.isWordSynced) {
       const geminiLyrics = await getGeminiLyrics(track, geminiApiKey, lrcData || undefined);
       if (geminiLyrics) {
           const updatedTrack = { ...track, lyrics: geminiLyrics };
