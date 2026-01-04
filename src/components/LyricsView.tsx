@@ -26,24 +26,31 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      // If the track already has lyrics, use them
-      // NOTE: We rely on the parent/Library to update the track object with better lyrics if available
+      // Optimistic render: If the track already has lyrics, use them immediately
+      // This prevents layout shift/loading state if we have data
       if (track.lyrics && !track.lyrics.error) {
         setLyrics(track.lyrics);
         setLoading(false);
-        return;
+      } else {
+        // Only show loading if we have nothing
+        setLoading(true);
+        setLyrics(null);
+        setActiveLineIndex(-1);
       }
 
-      setLoading(true);
-      setLyrics(null);
-      setActiveLineIndex(-1);
-
       try {
+        // Always attempt to fetch/upgrade lyrics
+        // (e.g., if user enabled Word Sync but we only have Line Sync)
         const data = await fetchLyrics(track);
+        
         if (mounted) {
-          setLyrics(data);
-          if (onTrackUpdate && !data.error) {
-             onTrackUpdate({ ...track, lyrics: data });
+          // Only update if we got *new* lyrics (reference check works because fetchLyrics returns track.lyrics if unchanged)
+          // Or if we had no lyrics before
+          if (data !== track.lyrics) {
+              setLyrics(data);
+              if (onTrackUpdate && !data.error) {
+                 onTrackUpdate({ ...track, lyrics: data });
+              }
           }
         }
       } catch (error) {
