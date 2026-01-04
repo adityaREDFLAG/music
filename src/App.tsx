@@ -11,6 +11,7 @@ import LoadingOverlay from './components/LoadingOverlay';
 import Home from './components/Home';
 import Library from './components/Library';
 import Search from './components/Search';
+import Stats from './components/Stats';
 import MiniPlayer from './components/MiniPlayer';
 import FullPlayer from './components/FullPlayer';
 import { Layout } from './components/Layout';
@@ -389,6 +390,12 @@ function MusicApp() {
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 filteredTracks={filteredTracks}
+                playTrack={playTrack}
+              />
+            )}
+            {activeTab === 'stats' && (
+              <Stats
+                key="stats"
                 playTrack={playTrack}
               />
             )}

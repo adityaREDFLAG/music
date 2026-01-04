@@ -621,6 +621,12 @@ export const useAudioPlayer = (
 
       const onEnded = () => {
            isManualSeekingRef.current = false; // Safety check
+
+           // Increment Play Count
+           if (player.currentTrackId) {
+             dbService.incrementPlayCount(player.currentTrackId).catch(console.error);
+           }
+
            if (player.repeat === RepeatMode.ONE) {
                audioElement.currentTime = 0;
                audioElement.play();

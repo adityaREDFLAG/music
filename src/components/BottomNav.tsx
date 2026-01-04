@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Home, Search, Library } from 'lucide-react';
+import { Home, Search, Library, BarChart2 } from 'lucide-react';
 
 interface BottomNavProps {
   activeTab: string;
@@ -13,6 +13,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, isVisibl
     { id: 'home', icon: Home, label: 'Home' },
     { id: 'search', icon: Search, label: 'Search' },
     { id: 'library', icon: Library, label: 'Library' },
+    { id: 'stats', icon: BarChart2, label: 'Stats' },
   ];
 
   return (

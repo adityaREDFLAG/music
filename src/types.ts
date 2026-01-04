@@ -17,6 +17,8 @@ export interface Track {
   bpm?: number;
   key?: string; // e.g. "8A", "Cm"
   energy?: number; // 0.0 - 1.0
+  playCount?: number;
+  lastPlayed?: number;
 }
 
 export interface Playlist {
