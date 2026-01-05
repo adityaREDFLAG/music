@@ -1,10 +1,9 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Track, LyricLine } from '../types';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { Loader2, AlertCircle, Music2 } from 'lucide-react';
+import { Track, LyricLine } from '../types'; // Assuming LyricWord is part of LyricLine
 import { fetchLyrics } from '../utils/lyrics';
-import { Loader2, AlertCircle, ChevronDown, Music2 } from 'lucide-react';
 
-// --- Types ---
 interface LyricsViewProps {
   track: Track;
   currentTime: number;
@@ -13,125 +12,6 @@ interface LyricsViewProps {
   onTrackUpdate?: (track: Track) => void;
 }
 
-// --- Custom Hook for Data Fetching ---
-const useLyricsFetcher = (track: Track, onTrackUpdate?: (track: Track) => void) => {
-  const [state, setState] = useState({
-    loading: false,
-    error: false,
-    lyrics: [] as LyricLine[],
-    isWordSynced: false,
-  });
-
-  useEffect(() => {
-    let isMounted = true;
-
-    // Use cached lyrics if available
-    if (track.lyrics && !track.lyrics.error && track.lyrics.lines.length > 0) {
-      setState({
-        loading: false,
-        error: false,
-        lyrics: track.lyrics.lines,
-        isWordSynced: !!track.lyrics.isWordSynced,
-      });
-      return;
-    }
-
-    const load = async () => {
-      setState(s => ({ ...s, loading: true, error: false }));
-      try {
-        const result = await fetchLyrics(track);
-        if (isMounted) {
-          if (result.error || result.lines.length === 0) {
-            setState(s => ({ ...s, loading: false, error: true }));
-          } else {
-            setState({
-              loading: false,
-              error: false,
-              lyrics: result.lines,
-              isWordSynced: !!result.isWordSynced,
-            });
-            onTrackUpdate?.({ ...track, lyrics: result });
-          }
-        }
-      } catch (err) {
-        if (isMounted) setState(s => ({ ...s, loading: false, error: true }));
-      }
-    };
-
-    load();
-    return () => { isMounted = false; };
-  }, [track.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return state;
-};
-
-// --- Sub-Component for Individual Lines (Performance Optimization) ---
-const LyricLineItem = React.memo(({ 
-  line, 
-  isActive, 
-  isPast, 
-  onSeek, 
-  isWordSynced, 
-  currentTime 
-}: { 
-  line: LyricLine; 
-  isActive: boolean; 
-  isPast: boolean; 
-  onSeek: (t: number) => void; 
-  isWordSynced: boolean;
-  currentTime: number;
-}) => {
-  const lineRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll trigger via ref
-  useEffect(() => {
-    if (isActive && lineRef.current) {
-      lineRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [isActive]);
-
-  return (
-    <motion.div
-      ref={lineRef}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ 
-        opacity: isActive ? 1 : isPast ? 0.3 : 0.3,
-        scale: isActive ? 1.05 : 0.95,
-        filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
-      }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`
-        cursor-pointer origin-center py-4 px-2 rounded-xl transition-colors
-        ${isActive ? 'text-white font-bold text-2xl md:text-3xl' : 'text-white/80 font-medium text-xl hover:bg-white/5'}
-      `}
-      onClick={() => onSeek(line.time)}
-    >
-      {isWordSynced && line.words && isActive ? (
-        <span className="flex flex-wrap justify-center gap-x-[0.25em] leading-tight">
-          {line.words.map((word, idx) => {
-            const isWordActive = currentTime >= word.time;
-            return (
-              <motion.span
-                key={`${idx}-${word.text}`}
-                animate={{
-                  color: isWordActive ? '#ffffff' : 'rgba(255,255,255,0.4)',
-                }}
-                transition={{ duration: 0.15 }}
-              >
-                {word.text}
-              </motion.span>
-            );
-          })}
-        </span>
-      ) : (
-        <span className="leading-tight block">{line.text}</span>
-      )}
-    </motion.div>
-  );
-});
-LyricLineItem.displayName = 'LyricLineItem';
-
-// --- Main Component ---
 const LyricsView: React.FC<LyricsViewProps> = ({
   track,
   currentTime,
@@ -139,69 +19,122 @@ const LyricsView: React.FC<LyricsViewProps> = ({
   onClose,
   onTrackUpdate,
 }) => {
-  const { loading, error, lyrics, isWordSynced } = useLyricsFetcher(track, onTrackUpdate);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [isWordSynced, setIsWordSynced] = useState(false);
+  
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Interaction State
-  const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const userInteractedTimeout = useRef<NodeJS.Timeout | null>(null);
+  // State to track auto-scroll; ref is better for mute updates, but state forces re-render if needed
+  const isAutoScrolling = useRef(true);
+  const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // Optimized Active Line Calculation
+  // 1. Efficient Lyric Loading
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadLyrics = async () => {
+      // Use cached lyrics if available
+      if (track.lyrics && !track.lyrics.error && track.lyrics.lines.length > 0) {
+        setLyrics(track.lyrics.lines);
+        setIsWordSynced(!!track.lyrics.isWordSynced);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(false);
+      
+      try {
+        const result = await fetchLyrics(track);
+        if (isMounted) {
+          if (result.error || result.lines.length === 0) {
+            setError(true);
+          } else {
+            setLyrics(result.lines);
+            setIsWordSynced(!!result.isWordSynced);
+            if (onTrackUpdate) onTrackUpdate({ ...track, lyrics: result });
+          }
+        }
+      } catch (err) {
+        if (isMounted) setError(true);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadLyrics();
+    return () => { isMounted = false; };
+  }, [track.id]);
+
+  // 2. High Performance Active Line Calculation
   const activeLineIndex = useMemo(() => {
-    if (!lyrics.length) return -1;
-    // Find the last line that has a time less than or equal to current time
-    // using findLastIndex is cleaner if supported, otherwise standard loop
-    let index = lyrics.findIndex(line => line.time > currentTime);
-    return index === -1 ? lyrics.length - 1 : Math.max(0, index - 1);
+    if (lyrics.length === 0) return -1;
+    // findLastIndex is more efficient for this, but simple loop is fine for <200 lines
+    // We iterate backwards to find the first line that satisfies the condition
+    for (let i = lyrics.length - 1; i >= 0; i--) {
+      if (currentTime >= lyrics[i].time) {
+        return i;
+      }
+    }
+    return -1;
   }, [currentTime, lyrics]);
 
-  // Handle Manual Scroll Detection
-  const handleScrollInteraction = useCallback(() => {
-    setIsUserScrolling(true);
-    
-    if (userInteractedTimeout.current) clearTimeout(userInteractedTimeout.current);
-    
-    // Optional: Auto-resume after 4 seconds of no activity? 
-    // Commented out to prefer manual "Resume" button for better UX
-    /*
-    userInteractedTimeout.current = setTimeout(() => {
-      setIsUserScrolling(false);
-    }, 4000);
-    */
-  }, []);
+  // 3. Smooth Auto-Scrolling
+  useEffect(() => {
+    if (!isAutoScrolling.current || activeLineIndex === -1 || !containerRef.current) return;
 
-  const scrollToCurrent = () => {
-    setIsUserScrolling(false);
-    // The useEffect inside LyricLineItem will trigger the scroll
+    const activeEl = document.getElementById(`lyric-line-${activeLineIndex}`);
+    if (activeEl) {
+      activeEl.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [activeLineIndex]); // Only trigger when index changes, not every millisecond
+
+  const handleUserInteraction = () => {
+    isAutoScrolling.current = false;
+    if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+    
+    // Resume auto-scroll after 3 seconds of inactivity
+    userScrollTimeout.current = setTimeout(() => {
+      isAutoScrolling.current = true;
+    }, 3000);
   };
 
-  const handleSeek = (time: number) => {
+  const handleLineClick = (time: number) => {
     onSeek(time);
-    setIsUserScrolling(false); // Snap back to sync on click
+    isAutoScrolling.current = true; // Snap back immediately on click
   };
+
+  // --- Render States ---
 
   if (loading) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-black/80 backdrop-blur-2xl">
-        <Loader2 className="animate-spin w-10 h-10 text-white/50 mb-4" />
-        <span className="text-white/50 font-medium animate-pulse">Syncing Lyrics...</span>
+      <div className="w-full h-full flex flex-col items-center justify-center text-white/50 gap-4">
+        <Loader2 className="animate-spin w-8 h-8" />
+        <span className="text-sm font-medium tracking-wide">Syncing Lyrics...</span>
       </div>
     );
   }
 
   if (error || lyrics.length === 0) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-black/80 backdrop-blur-2xl p-6">
-        <div className="bg-white/5 p-6 rounded-full mb-4">
-          <Music2 className="w-12 h-12 text-white/30" />
+      <div className="w-full h-full flex flex-col items-center justify-center text-white/50 gap-6 p-8">
+        <div className="bg-white/10 p-6 rounded-full backdrop-blur-md">
+          <Music2 className="w-12 h-12 opacity-50" />
         </div>
-        <h3 className="text-xl font-semibold text-white mb-2">Lyrics not available</h3>
-        <p className="text-white/40 text-sm mb-6 text-center max-w-xs">
-          We couldn't find synchronized lyrics for this track.
-        </p>
+        <div className="text-center space-y-2">
+          <h3 className="text-lg font-medium text-white">Lyrics not available</h3>
+          <p className="text-sm text-white/40 max-w-xs mx-auto">
+            We couldn't fetch the lyrics for this track. It might be instrumental.
+          </p>
+        </div>
         <button 
           onClick={onClose}
-          className="px-8 py-3 rounded-full bg-white text-black font-semibold hover:scale-105 transition-transform"
+          className="px-8 py-3 rounded-full bg-white text-black font-semibold hover:bg-gray-200 transition-colors"
         >
           Close View
         </button>
@@ -210,48 +143,70 @@ const LyricsView: React.FC<LyricsViewProps> = ({
   }
 
   return (
-    <div className="relative w-full h-full bg-black/80 backdrop-blur-2xl group">
-      {/* Container with Masking for fade effect */}
-      <div 
-        ref={containerRef}
-        className="w-full h-full overflow-y-auto no-scrollbar py-[50vh] px-6 text-center"
-        style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)' }}
-        onWheel={handleScrollInteraction}
-        onTouchMove={handleScrollInteraction}
-      >
-        <div className="flex flex-col gap-6 max-w-3xl mx-auto">
-          {lyrics.map((line, index) => (
-            // Only pass scroll logic to the active line if we aren't manually scrolling
-            <LyricLineItem
-              key={`${index}-${line.time}`}
-              line={line}
-              isActive={index === activeLineIndex}
-              isPast={index < activeLineIndex}
-              isWordSynced={isWordSynced}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-              // Prevent auto-scroll inside the item if user is scrolling
-              {...(isUserScrolling ? { isActive: false } : {})} 
-            />
-          ))}
-        </div>
-      </div>
+    <div 
+      ref={containerRef}
+      className="w-full h-full overflow-y-auto no-scrollbar scroll-smooth py-[50vh] px-6 text-center"
+      onWheel={handleUserInteraction}
+      onTouchMove={handleUserInteraction}
+      onPointerDown={(e) => e.stopPropagation()} 
+    >
+      <div className="max-w-3xl mx-auto flex flex-col">
+        {lyrics.map((line, index) => {
+          const isActive = index === activeLineIndex;
+          const isPast = index < activeLineIndex;
 
-      {/* Floating Resume Button */}
-      <AnimatePresence>
-        {isUserScrolling && (
-          <motion.button
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            onClick={scrollToCurrent}
-            className="absolute bottom-8 right-8 z-50 flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/10 text-white px-4 py-2 rounded-full font-medium text-sm transition-colors shadow-lg"
-          >
-            <ChevronDown className="w-4 h-4" />
-            <span>Resume Sync</span>
-          </motion.button>
-        )}
-      </AnimatePresence>
+          return (
+            <motion.div
+              id={`lyric-line-${index}`}
+              key={index}
+              initial={false}
+              animate={{ 
+                scale: isActive ? 1 : 0.95,
+                opacity: isActive ? 1 : isPast ? 0.3 : 0.3,
+                y: 0,
+                filter: isActive ? 'blur(0px)' : 'blur(1.5px)'
+              }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className={`
+                py-4 cursor-pointer transition-colors duration-300
+                ${isActive ? 'text-white' : 'text-white/60 hover:text-white/90'}
+              `}
+              onClick={() => handleLineClick(line.time)}
+            >
+              <div className={`
+                text-2xl md:text-3xl lg:text-4xl font-bold leading-tight tracking-tight
+                ${isActive ? 'bg-gradient-to-r from-white to-white/90 bg-clip-text' : ''}
+              `}>
+                {isWordSynced && line.words ? (
+                  // FIXED: Use standard text flow instead of Flex gap
+                  <span className="inline-block">
+                    {line.words.map((word, wIdx) => {
+                      const isWordActive = currentTime >= word.time;
+                      return (
+                        <React.Fragment key={wIdx}>
+                          <motion.span
+                            animate={{ 
+                              opacity: isWordActive ? 1 : 0.3,
+                            }}
+                            transition={{ duration: 0.1 }}
+                            className="inline-block" // Allows transform but keeps text flow
+                          >
+                            {word.text}
+                          </motion.span>
+                          {/* Add a natural space between words unless it's the last one */}
+                          {wIdx < line.words.length - 1 && " "}
+                        </React.Fragment>
+                      );
+                    })}
+                  </span>
+                ) : (
+                  <span>{line.text}</span>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
     </div>
   );
 };
