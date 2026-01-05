@@ -44,7 +44,6 @@ const extractJSON = (text: string): any | null => {
 export const parseLrc = (lrc: string): Lyrics => {
   const lines: LyricLine[] = [];
   const lineRegex = /^\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\](.*)$/;
-  const wordTagRegex = /(<\d{1,2}:\d{2}\.\d{1,3}>)/;
 
   lrc.split(/\r?\n/).forEach((rawLine) => {
     const trimmed = rawLine.trim();
@@ -60,24 +59,22 @@ export const parseLrc = (lrc: string): Lyrics => {
     const content = match[2].trim();
     
     // 2. Parse Word Tags <mm:ss.xx>
-    // Split by the tag regex to get alternating [text, tag, text, tag...]
-    const parts = content.split(wordTagRegex);
+    const wordTagRegex = /(<\d{1,2}:\d{2}\.\d{1,3}>)|([^\<]+)/g;
     const words: LyricWord[] = [];
     let currentTime = lineTime;
 
-    parts.forEach((part) => {
-      if (wordTagRegex.test(part)) {
-        // It's a time tag, update current time pointer
-        const t = parseTime(part.slice(1, -1));
+    let m;
+    while ((m = wordTagRegex.exec(content)) !== null) {
+      if (m[1]) {
+        // it’s a tag
+        const t = parseTime(m[1].slice(1, -1));
         if (t !== null) currentTime = t;
       } else {
-        // It's text
-        const text = part.trim();
-        if (text) {
-          words.push({ time: currentTime, text });
-        }
+        // it’s text
+        const text = m[2].trim();
+        if (text) words.push({ time: currentTime, text });
       }
-    });
+    }
 
     // 3. Construct Line
     if (words.length > 0) {
@@ -150,7 +147,10 @@ const getGeminiLyrics = async (
     if (!rawText) return null;
 
     const parsed = extractJSON(rawText);
-    if (!parsed?.lines || !Array.isArray(parsed.lines)) return null;
+    if (!parsed?.lines || !Array.isArray(parsed.lines)) {
+      console.warn('Gemini returned junk – keeping original synced lyrics');
+      return null;
+    }
 
     return {
       lines: parsed.lines,
@@ -174,8 +174,9 @@ export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
   // 2. Return Cached if valid
   if (track.lyrics && !track.lyrics.error) {
     if (track.lyrics.isWordSynced) return track.lyrics;
-    // If we have synced lines but user doesn't want word-sync, return existing
-    if (track.lyrics.synced && !wordSyncEnabled) return track.lyrics;
+    if (!wordSyncEnabled) return track.lyrics;
+    // If here: we have non-word-synced lyrics, and user wants word-synced.
+    // We proceed to see if we can enhance them.
   }
 
   let bestResult: Lyrics = { lines: [], synced: false, error: true };
