@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { fetchLyrics } from '../utils/lyrics';
 import { Track, Lyrics } from '../types';
@@ -22,11 +22,18 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  // --- FIXED: Time Unit Normalization ---
+  // If currentTime is > 10000 (10s), it's likely ms. 
+  // (Assuming no songs have a 10,000 second intro).
+  const normalizedTime = useMemo(() => {
+    return currentTime > 10000 ? currentTime / 1000 : currentTime;
+  }, [currentTime]);
+
   // Fetch Lyrics
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      // Optimistic render: If the track already has lyrics, use them immediately
+      // Optimistic render
       if (track.lyrics && !track.lyrics.error) {
         setLyrics(track.lyrics);
         setLoading(false);
@@ -40,7 +47,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         const data = await fetchLyrics(track);
         
         if (mounted) {
-          if (data !== track.lyrics) {
+          if (JSON.stringify(data) !== JSON.stringify(track.lyrics)) {
               setLyrics(data);
               if (onTrackUpdate && !data.error) {
                  onTrackUpdate({ ...track, lyrics: data });
@@ -61,15 +68,16 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
   useEffect(() => {
     if (!lyrics || !lyrics.synced) return;
 
+    // Use normalizedTime here
     const index = lyrics.lines.findIndex((line, i) => {
       const nextLine = lyrics.lines[i + 1];
-      return line.time <= currentTime && (!nextLine || nextLine.time > currentTime);
+      return line.time <= normalizedTime && (!nextLine || nextLine.time > normalizedTime);
     });
 
     if (index !== -1 && index !== activeLineIndex) {
       setActiveLineIndex(index);
     }
-  }, [currentTime, lyrics, activeLineIndex]);
+  }, [normalizedTime, lyrics, activeLineIndex]);
 
   // Handle User Interaction (Scroll)
   const handleUserScroll = useCallback(() => {
@@ -160,30 +168,30 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         >
                              <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
                                {line.words.map((word, wIdx) => {
-                                   // "Singing now" logic
-                                   const isWordActive = isActive && currentTime >= word.time && 
-                                        (wIdx === line.words!.length - 1 || currentTime < line.words![wIdx + 1].time);
+                                   // "Singing now" logic with NORMALIZED TIME
+                                   const isWordActive = isActive && normalizedTime >= word.time && 
+                                        (wIdx === line.words!.length - 1 || normalizedTime < line.words![wIdx + 1].time);
                                    
-                                   // "Already sung" logic
-                                   const isWordPast = isActive && currentTime >= word.time;
+                                   // "Already sung" logic with NORMALIZED TIME
+                                   const isWordPast = isActive && normalizedTime >= word.time;
 
                                    return (
-                                       <motion.span 
-                                         key={wIdx}
-                                         initial={false}
-                                         animate={{
-                                            color: isWordActive ? '#ffffff' : (isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)'),
-                                            scale: isWordActive ? 1.15 : 1,
-                                            textShadow: isWordActive 
-                                                ? "0 0 15px rgba(255,255,255,0.8)" 
-                                                : "none",
-                                            y: isWordActive ? -2 : 0
-                                         }}
-                                         transition={{ duration: 0.2, ease: "easeOut" }}
-                                         className="inline-block origin-bottom"
-                                       >
-                                           {word.text}
-                                       </motion.span>
+                                        <motion.span 
+                                          key={wIdx}
+                                          initial={false}
+                                          animate={{
+                                             color: isWordActive ? '#ffffff' : (isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)'),
+                                             scale: isWordActive ? 1.15 : 1,
+                                             textShadow: isWordActive 
+                                                 ? "0 0 15px rgba(255,255,255,0.8)" 
+                                                 : "none",
+                                             y: isWordActive ? -2 : 0
+                                          }}
+                                          transition={{ duration: 0.2, ease: "easeOut" }}
+                                          className="inline-block origin-bottom"
+                                        >
+                                             {word.text}
+                                        </motion.span>
                                    );
                                })}
                              </p>
