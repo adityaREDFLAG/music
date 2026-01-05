@@ -27,25 +27,19 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     let mounted = true;
     const load = async () => {
       // Optimistic render: If the track already has lyrics, use them immediately
-      // This prevents layout shift/loading state if we have data
       if (track.lyrics && !track.lyrics.error) {
         setLyrics(track.lyrics);
         setLoading(false);
       } else {
-        // Only show loading if we have nothing
         setLoading(true);
         setLyrics(null);
         setActiveLineIndex(-1);
       }
 
       try {
-        // Always attempt to fetch/upgrade lyrics
-        // (e.g., if user enabled Word Sync but we only have Line Sync)
         const data = await fetchLyrics(track);
         
         if (mounted) {
-          // Only update if we got *new* lyrics (reference check works because fetchLyrics returns track.lyrics if unchanged)
-          // Or if we had no lyrics before
           if (data !== track.lyrics) {
               setLyrics(data);
               if (onTrackUpdate && !data.error) {
@@ -61,13 +55,12 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     };
     load();
     return () => { mounted = false; };
-  }, [track.id, track.title, track.artist]); // Re-run if track changes
+  }, [track.id, track.title, track.artist]);
 
   // Sync Active Line
   useEffect(() => {
     if (!lyrics || !lyrics.synced) return;
 
-    // Find the current line (last line where time <= currentTime)
     const index = lyrics.lines.findIndex((line, i) => {
       const nextLine = lyrics.lines[i + 1];
       return line.time <= currentTime && (!nextLine || nextLine.time > currentTime);
@@ -129,7 +122,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     }
 
     if (!lyrics.synced && lyrics.plain) {
-        // Plain text fallback
         return (
             <div className="w-full h-full overflow-y-auto px-8 py-12 text-center no-scrollbar mask-image-gradient">
                 <p className="text-white/90 whitespace-pre-wrap text-xl leading-relaxed font-medium">
@@ -152,9 +144,9 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                 const isActive = i === activeLineIndex;
                 const isPast = i < activeLineIndex;
                 
-                // Word-level Sync Rendering
+                // Word-level Sync Rendering (Karaoke Mode)
                 if (lyrics.isWordSynced && line.words && line.words.length > 0) {
-                     return (
+                      return (
                         <motion.div
                             key={i}
                             onClick={() => onSeek(line.time)}
@@ -168,23 +160,30 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         >
                              <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
                                {line.words.map((word, wIdx) => {
+                                   // "Singing now" logic
                                    const isWordActive = isActive && currentTime >= word.time && 
-                                       (wIdx === line.words!.length - 1 || currentTime < line.words![wIdx + 1].time);
+                                        (wIdx === line.words!.length - 1 || currentTime < line.words![wIdx + 1].time);
                                    
-                                   // Also highlight past words in the active line
+                                   // "Already sung" logic
                                    const isWordPast = isActive && currentTime >= word.time;
 
                                    return (
-                                       <span 
+                                       <motion.span 
                                          key={wIdx}
-                                         className={`transition-colors duration-200 ${
-                                             isActive 
-                                               ? (isWordPast ? 'text-white drop-shadow-md' : 'text-white/40')
-                                               : 'text-inherit' 
-                                         }`}
+                                         initial={false}
+                                         animate={{
+                                            color: isWordActive ? '#ffffff' : (isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)'),
+                                            scale: isWordActive ? 1.15 : 1,
+                                            textShadow: isWordActive 
+                                                ? "0 0 15px rgba(255,255,255,0.8)" 
+                                                : "none",
+                                            y: isWordActive ? -2 : 0
+                                         }}
+                                         transition={{ duration: 0.2, ease: "easeOut" }}
+                                         className="inline-block origin-bottom"
                                        >
                                            {word.text}
-                                       </span>
+                                       </motion.span>
                                    );
                                })}
                              </p>
