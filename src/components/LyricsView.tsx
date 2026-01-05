@@ -210,6 +210,11 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                                    );
                                })}
                              </p>
+                             {line.translation && (
+                               <p className="text-lg md:text-xl font-medium text-white/60 mt-2 block">
+                                 {line.translation}
+                               </p>
+                             )}
                         </motion.div>
                     );
                 }
@@ -232,6 +237,11 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                          <p className={`text-2xl md:text-3xl font-bold leading-tight ${isActive ? 'drop-shadow-md' : ''}`}>
                            {line.text}
                          </p>
+                         {line.translation && (
+                           <p className="text-lg md:text-xl font-medium text-white/60 mt-2">
+                             {line.translation}
+                           </p>
+                         )}
                     </motion.div>
                 );
             })}

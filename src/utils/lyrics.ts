@@ -119,15 +119,16 @@ const getGeminiLyrics = async (
   context: { synced?: string; plain?: string }
 ): Promise<Lyrics | null> => {
   const prompt = `
-    Task: Generate precise word-level synced lyrics (Karaoke style).
+    Task: Generate precise word-level synced lyrics (Karaoke style) and translate them to English.
     Song: "${track.title}" by "${track.artist}"
     Duration: ${track.duration}s
     
     Instructions:
     1. Output strictly valid JSON.
-    2. Do NOT change the lyrics text provided below.
+    2. Do NOT change the original lyrics text provided below.
     3. Estimate natural timing for each word based on the song structure.
-    4. Format: { "lines": [ { "time": number (seconds), "text": string, "words": [ { "time": number, "text": string } ] } ] }
+    4. Translate each line to English. If the original language is English, translation can be null or empty.
+    5. Format: { "lines": [ { "time": number (seconds), "text": string, "translation": string | null, "words": [ { "time": number, "text": string } ] } ] }
 
     Input Data:
     ${context.synced ? `Reference LRC:\n${context.synced}` : `Lyrics Text:\n${context.plain}`}
@@ -182,9 +183,11 @@ export const fetchLyrics = async (track: Track, force = false): Promise<Lyrics> 
 
   // 2. Return Cached if valid
   if (!force && track.lyrics && !track.lyrics.error) {
-    if (track.lyrics.isWordSynced) return track.lyrics;
+    const hasTranslation = track.lyrics.lines.some(l => l.translation);
+    if (track.lyrics.isWordSynced && (!wordSyncEnabled || hasTranslation)) return track.lyrics;
     if (!wordSyncEnabled) return track.lyrics;
     // If here: we have non-word-synced lyrics, and user wants word-synced.
+    // OR we have word-synced lyrics but miss translation, and user wants word-synced (which implies AI/Translation).
     // We proceed to see if we can enhance them or find better ones.
   }
 
@@ -274,8 +277,10 @@ export const fetchLyrics = async (track: Track, force = false): Promise<Lyrics> 
   }
 
   // 5. Strategy C: Gemini Enhancement (The "Magic" Step)
-  // If we have content, but no word-sync, and the user wants it, and has a key...
-  if (wordSyncEnabled && geminiApiKey && rawData && !bestResult.isWordSynced) {
+  // If we have content, but no word-sync OR no translation, and the user wants AI features, and has a key...
+  // We allow enhancement even if we have word sync, to get translations.
+  const needsEnhancement = !bestResult.isWordSynced || !bestResult.lines.some(l => l.translation);
+  if (wordSyncEnabled && geminiApiKey && rawData && needsEnhancement) {
     const enhanced = await getGeminiLyrics(track, geminiApiKey, rawData);
     if (enhanced) {
       const finalLyrics = { ...enhanced, plain: bestResult.plain };
