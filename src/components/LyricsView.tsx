@@ -1,286 +1,378 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { fetchLyrics } from '../utils/lyrics';
-import { Track, Lyrics, LyricLine as LyricLineType, LyricWord } from '../types';
-import { Loader2, Music2, AlertCircle } from 'lucide-react';
+import { Lyrics, LyricLine, Track, LyricWord } from '../types';
+import { dbService } from '../db';
 
-// --- Components ---
+//smth..
+export const parseLrc = (lrc: string): LyricLine[] => {
+  const lines: LyricLine[] = [];
+  const lineRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$/;
 
-/**
- * Individual Word Component for granular "Karaoke" animation.
- * We interpolate the fill based on the current time relative to the word's duration.
- */
-const KaraokeWord = ({ 
-    word, 
-    nextWordTime, 
-    currentTime, 
-    isActiveLine 
-}: { 
-    word: LyricWord; 
-    nextWordTime: number; 
-    currentTime: number; 
-    isActiveLine: boolean;
-}) => {
-    // If this line isn't active, we don't need expensive calcs.
-    if (!isActiveLine) {
-        // If line is past, word is full white. If future, word is dimmed.
-        const isPast = currentTime > word.time;
-        return <span className={isPast ? "text-white" : "text-white/30"}>{word.text}</span>;
-    }
+  lrc.split('\n').forEach(lineStr => {
+    const trimmed = lineStr.trim();
+    if (!trimmed) return;
 
-    // Calculate progress (0 to 1) for this specific word
-    const duration = nextWordTime - word.time;
-    // Safety check for zero duration or weird data
-    const safeDuration = duration > 0 ? duration : 0.5; 
-    const progress = Math.min(Math.max((currentTime - word.time) / safeDuration, 0), 1);
+    const match = trimmed.match(lineRegex);
+    if (match) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseInt(match[2], 10);
+      const milliseconds = parseInt(match[3], 10);
+      const msDivisor = match[3].length === 3 ? 1000 : 100;
+      const startTime = minutes * 60 + seconds + milliseconds / msDivisor;
 
-    // If word is completely done
-    if (progress === 1) return <span className="text-white">{word.text}</span>;
-    // If word hasn't started
-    if (progress === 0) return <span className="text-white/30">{word.text}</span>;
+      let rawText = match[4].trim();
 
-    // Render the "filling" effect using background-clip
-    return (
-        <span className="relative inline-block">
-            {/* Background (Inactive Color) */}
-            <span className="text-white/30 select-none absolute inset-0" aria-hidden="true">
-                {word.text}
-            </span>
-            {/* Foreground (Active Color) - Clipped */}
-            <span 
-                className="text-white relative z-10 block overflow-hidden"
-                style={{ width: `${progress * 100}%`, whiteSpace: 'pre' }}
-            >
-                {word.text}
-            </span>
-        </span>
-    );
+      // Check for enhanced lyrics timestamps: <mm:ss.xx>
+      // Example: "I <00:12.50> love <00:13.00> you"
+      // Note: The first word's time usually matches the line time, but enhanced lyrics might explicit it or omit it.
+      // Common format: [time] word <time> word <time> ...
+
+      // We will look for <mm:ss.xx> patterns.
+      const wordTimestampRegex = /<(\d{2}):(\d{2})\.(\d{2,3})>/g;
+      const hasWordTimestamps = wordTimestampRegex.test(rawText);
+
+      if (hasWordTimestamps) {
+        const words: LyricWord[] = [];
+        // Split by timestamp to get words and times
+        // Strategy: iterate through the string and extract time-word pairs.
+
+        // This is tricky because the format can vary.
+        // Format A: [start] Word <time> Word <time> Word...
+        // Format B: [start] <start> Word <time> Word...
+
+        // Let's preserve the original text for the line, but strip timestamps
+        const cleanText = rawText.replace(wordTimestampRegex, '').replace(/\s+/g, ' ').trim();
+
+        // Now extract words with their times.
+        // We start with the line start time.
+        let currentTime = startTime;
+        let lastIndex = 0;
+
+        // Reset regex
+        wordTimestampRegex.lastIndex = 0;
+        let wordMatch;
+
+        // This simple splitting might fail if words are complex.
+        // Let's use a split approach.
+        const parts = rawText.split(wordTimestampRegex);
+        // If rawText is "Word1 <00:01.00> Word2", split gives ["Word1 ", "00", "01", "00", " Word2"] if using capturing groups
+        // Capturing groups are (mm), (ss), (ms).
+
+        // A better way: match all occurrences of <time> or text segments.
+        // But let's look at how most A-LRC are structured.
+        // Usually: Word <time> Word <time>
+        // The first word starts at `startTime`.
+        // The timestamp <T> indicates the start of the *next* word usually, or end of previous?
+        // Actually, A-LRC spec says <time> is the start time of the word following it? Or preceding?
+        // Actually, in Karaoke LRC: "Word <time> Word" -> "Word" is sung until <time>.
+        // BUT in some formats (like Spotify/Musixmatch), it is "Word <time> Word" where <time> is start of 2nd word?
+
+        // Let's assume standard Enhanced LRC:
+        // [mm:ss.xx] <mm:ss.xx> Word <mm:ss.xx> Word
+        // Or
+        // [mm:ss.xx] Word <mm:ss.xx> Word
+
+        // Let's treat it as:
+        // Any text BEFORE the first <timestamp> belongs to `startTime`.
+        // Text AFTER <timestamp> belongs to that timestamp.
+
+        // We can split by `<` which starts a tag.
+
+        const segments = rawText.split('<');
+        // Example: "Word1 <00:12.50> Word2" -> ["Word1 ", "00:12.50> Word2"]
+        // Example: "<00:12.00> Word1 <00:12.50> Word2" -> ["", "00:12.00> Word1 ", "00:12.50> Word2"]
+
+        segments.forEach((seg, index) => {
+            if (index === 0) {
+                // Text before any <time> tag
+                const w = seg.trim();
+                if (w) {
+                    words.push({ time: startTime, text: w });
+                }
+            } else {
+                // Starts with timestamp like "00:12.50> Word..."
+                const closeIndex = seg.indexOf('>');
+                if (closeIndex !== -1) {
+                    const timeStr = seg.substring(0, closeIndex); // "00:12.50"
+                    const content = seg.substring(closeIndex + 1).trim(); // " Word..."
+
+                    const tm = timeStr.match(/^(\d{2}):(\d{2})\.(\d{2,3})$/);
+                    if (tm) {
+                        const m = parseInt(tm[1], 10);
+                        const s = parseInt(tm[2], 10);
+                        const msVal = parseInt(tm[3], 10);
+                        const div = tm[3].length === 3 ? 1000 : 100;
+                        const t = m * 60 + s + msVal / div;
+
+                        if (content) {
+                            words.push({ time: t, text: content });
+                        }
+                    } else {
+                         // Fallback if bad timestamp, append to previous word or ignore?
+                         // Just append as text to previous word if exists
+                         if (words.length > 0 && content) {
+                             words[words.length - 1].text += " " + content;
+                         }
+                    }
+                }
+            }
+        });
+
+        // If we found words, use them
+        if (words.length > 0) {
+            lines.push({ time: startTime, text: cleanText, words });
+        } else {
+             lines.push({ time: startTime, text: cleanText });
+        }
+
+      } else {
+        // Standard line
+        if (rawText) {
+          lines.push({ time: startTime, text: rawText });
+        }
+      }
+    }
+  });
+
+  return lines;
 };
 
 /**
- * Memoized Line Component to prevent re-rendering the whole list.
- */
-const LyricLineItem = React.memo(({ 
-    line, 
-    index, 
-    isActive, 
-    isPast, 
-    currentTime, 
-    onSeek 
-}: { 
-    line: LyricLineType; 
-    index: number; 
-    isActive: boolean; 
-    isPast: boolean; 
-    currentTime: number; 
-    onSeek: (t: number) => void;
-}) => {
-    const isWordSynced = line.words && line.words.length > 0;
+ * Helper to get lyrics from Gemini.
+ * It can generate from scratch OR enhance existing lyrics if provided.
+ */
+const getGeminiLyrics = async (
+  track: Track,
+  apiKey: string,
+  context?: { synced?: string, plain?: string }
+): Promise<Lyrics | null> => {
+    const { title, artist } = track;
+    let prompt = "";
 
-    return (
-        <motion.div
-            layout // Smooth layout transitions if spacing changes
-            onClick={() => onSeek(line.time)}
-            initial={false}
-            animate={{
-                scale: isActive ? 1.05 : 1,
-                opacity: isActive ? 1 : isPast ? 0.5 : 0.3,
-                filter: isActive ? 'blur(0px)' : 'blur(1px)',
-                y: isActive ? 0 : 0
-            }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-            className={`
-                cursor-pointer origin-left py-3 px-6 rounded-xl transition-colors duration-300
-                ${isActive ? 'bg-white/5' : 'hover:bg-white/5'}
-            `}
-        >
-            <div className={`text-2xl md:text-3xl font-bold leading-relaxed flex flex-wrap gap-x-[0.25em] ${isActive ? 'drop-shadow-lg' : ''}`}>
-                {isWordSynced ? (
-                    line.words!.map((word, wIdx) => {
-                        // Determine the end time of this word (start of next word, or end of line estimate)
-                        const nextWord = line.words![wIdx + 1];
-                        // If it's the last word, give it a hypothetical duration (e.g. 1 sec or until next line)
-                        // Ideally we'd pass the next line time, but 0.5s is a decent default for "trailing"
-                        const nextTime = nextWord ? nextWord.time : (word.time + 1.5); 
-                        
-                        return (
-                            <KaraokeWord
-                                key={wIdx}
-                                word={word}
-                                nextWordTime={nextTime}
-                                currentTime={currentTime}
-                                isActiveLine={isActive}
-                            />
-                        );
-                    })
-                ) : (
-                   <span>{line.text}</span>
-                )}
-            </div>
-        </motion.div>
-    );
-});
+    if (context?.synced) {
+        // SCENARIO 1: Enhance existing LRC (Best Case)
+        prompt = `I have the following line-synced lyrics for "${title}" by "${artist}".
+        Please convert them into a JSON format with word-level synchronization.
 
-// --- Main Container ---
+        CRITICAL INSTRUCTIONS:
+        1. Use the provided line timestamps as STRICT constraints. The first word of a line MUST start at the line's timestamp.
+        2. Interpolate the timestamps for the remaining words in the line based on the natural rhythm of the song.
+        3. Do NOT change the text content. Use the provided text exactly.
 
-interface LyricsViewProps {
-    track: Track;
-    currentTime: number;
-    onSeek: (time: number) => void;
-    onTrackUpdate?: (track: Track) => void;
-    onClose?: () => void;
-}
+        Input LRC:
+        ${context.synced}
 
-const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onTrackUpdate }) => {
-    const [lyrics, setLyrics] = useState<Lyrics | null>(track.lyrics || null);
-    const [loading, setLoading] = useState(false);
-    const [activeLineIndex, setActiveLineIndex] = useState(-1);
-    const [isUserScrolling, setIsUserScrolling] = useState(false);
+        Output JSON structure:
+        {
+          "lines": [
+            {
+              "time": <line_start_time>,
+              "text": "<line_text>",
+              "words": [
+                { "time": <word_time>, "text": "<word>" },
+                ...
+              ]
+            }
+          ]
+        }
+        Return ONLY the raw JSON string. No markdown code blocks.`;
+    } else if (context?.plain) {
+        // SCENARIO 2: Sync plain text (Good Case)
+        prompt = `I have the lyrics for "${title}" by "${artist}".
+        Please generate word-level synchronization timestamps for them.
 
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
+        Lyrics:
+        ${context.plain}
 
-    // 1. Logic: Fetching
-    useEffect(() => {
-        let mounted = true;
-        const load = async () => {
-            if (track.lyrics && !track.lyrics.error) {
-                setLyrics(track.lyrics);
-            } else {
-                setLoading(true);
-                setLyrics(null);
-            }
+        Output JSON structure:
+        {
+          "lines": [
+            {
+              "time": <line_start_time>,
+              "text": "<line_text>",
+              "words": [
+                { "time": <word_time>, "text": "<word>" },
+                ...
+              ]
+            }
+          ]
+        }
+        Return ONLY the raw JSON string. No markdown code blocks.`;
+    } else {
+        // SCENARIO 3: Generate from scratch (Fallback)
+        prompt = `Generate word-for-word synced lyrics for the song "${title}" by "${artist}".
+        Format the output strictly as a JSON object with this structure:
+        {
+          "lines": [
+            {
+              "time": <start_time_seconds>,
+              "text": "<line_text>",
+              "words": [
+                { "time": <word_time_seconds>, "text": "<word>" },
+                ...
+              ]
+            }
+          ]
+        }
+        The "time" for the line should be the start time of the first word.
+        Ensure strict JSON validity. Return ONLY the raw JSON string.`;
+    }
 
-            try {
-                const data = await fetchLyrics(track);
-                if (mounted && data) {
-                    // Deep compare could go here, but reference check is fast
-                    if (JSON.stringify(data) !== JSON.stringify(track.lyrics)) {
-                        setLyrics(data);
-                        if (onTrackUpdate && !data.error) onTrackUpdate({ ...track, lyrics: data });
-                    }
-                }
-            } catch (e) {
-                console.warn("Lyrics fetch error", e);
-            } finally {
-                if (mounted) setLoading(false);
-            }
-        };
-        load();
-        return () => { mounted = false; };
-    }, [track.id]);
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.1, // Low temp for deterministic format
+                    responseMimeType: "application/json" // Force JSON output
+                }
+            })
+        });
 
-    // 2. Logic: Syncing
-    useEffect(() => {
-        if (!lyrics?.synced) return;
-        
-        // Binary search is overkill for lyrics (<100 lines), findIndex is fine
-        // We find the *last* line that has started
-        const index = lyrics.lines.findIndex((line, i) => {
-            const nextLine = lyrics.lines[i + 1];
-            return currentTime >= line.time && (!nextLine || currentTime < nextLine.time);
-        });
+        if (!response.ok) {
+            console.warn("Gemini API error:", response.statusText);
+            return null;
+        }
 
-        if (index !== -1 && index !== activeLineIndex) {
-            setActiveLineIndex(index);
-        }
-    }, [currentTime, lyrics]);
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    // 3. Logic: Scrolling
-    // Smooth scroll active element into view unless user is interacting
-    useEffect(() => {
-        if (activeLineIndex !== -1 && scrollRef.current && !isUserScrolling) {
-            const children = scrollRef.current.children;
-            if (children[activeLineIndex]) {
-                children[activeLineIndex].scrollIntoView({ 
-                    behavior: 'smooth', 
-                    block: 'center',
-                    inline: 'center'
-                });
-            }
-        }
-    }, [activeLineIndex, isUserScrolling]);
+        if (!text) return null;
 
-    const handleInteraction = useCallback(() => {
-        setIsUserScrolling(true);
-        if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
-        userScrollTimeout.current = setTimeout(() => setIsUserScrolling(false), 2500);
-    }, []);
+        // --- ROBUST JSON PARSING ---
+        let parsed: any = null;
+        try {
+            // 1. Try parsing directly
+            parsed = JSON.parse(text);
+        } catch (e) {
+            // 2. Fallback: Clean markdown wrappers if direct parse fails
+            // This handles ```json ... ``` and just ``` ... ```
+            const cleanText = text
+                .replace(/^```json\s*/, '')
+                .replace(/^```\s*/, '')
+                .replace(/\s*```$/, '')
+                .trim();
+            
+            try {
+                parsed = JSON.parse(cleanText);
+            } catch (innerE) {
+                console.warn("Failed to parse Gemini JSON:", innerE);
+                return null;
+            }
+        }
 
-
-    // --- Renderers ---
-
-    if (loading) {
-        return (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
-                <Loader2 className="animate-spin text-white/50 mb-3" size={32} />
-                <span className="text-white/50 text-sm font-medium tracking-widest uppercase">Syncing Lyrics</span>
-            </div>
-        );
-    }
-
-    if (!lyrics || (lyrics.lines.length === 0 && !lyrics.plain)) {
-        return (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-md p-8 text-center">
-                <Music2 className="text-white/20 mb-4" size={64} />
-                <h3 className="text-white/90 font-bold text-xl mb-1">Instrumental</h3>
-                <p className="text-white/40 text-sm">Or lyrics not available for this track.</p>
-            </div>
-        );
-    }
-
-    // Plain Text Fallback
-    if (!lyrics.synced && lyrics.plain) {
-        return (
-            <motion.div 
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="absolute inset-0 bg-black/60 backdrop-blur-md overflow-y-auto p-8"
-            >
-                <p className="text-white/80 whitespace-pre-wrap text-lg leading-loose font-medium text-center max-w-2xl mx-auto">
-                    {lyrics.plain}
-                </p>
-            </motion.div>
-        );
-    }
-
-    // Synced View
-    return (
-        <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-20 flex flex-col bg-black/60 backdrop-blur-xl"
-        >
-            {/* Gradient Masks */}
-            <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black via-black/80 to-transparent z-10 pointer-events-none" />
-            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black via-black/80 to-transparent z-10 pointer-events-none" />
-
-            <div 
-                ref={containerRef}
-                onWheel={handleInteraction}
-                onTouchMove={handleInteraction}
-                className="w-full h-full overflow-y-auto no-scrollbar scroll-smooth"
-            >
-                <div 
-                    ref={scrollRef} 
-                    className="flex flex-col gap-6 py-[50vh] max-w-4xl mx-auto"
-                >
-                    {lyrics.lines.map((line, i) => (
-                        <LyricLineItem
-                            key={i}
-                            index={i}
-                            line={line}
-                            isActive={i === activeLineIndex}
-                            isPast={i < activeLineIndex}
-                            currentTime={currentTime}
-                            onSeek={onSeek}
-                        />
-                    ))}
-                </div>
-            </div>
-        </motion.div>
-    );
+        if (parsed && parsed.lines && Array.isArray(parsed.lines)) {
+             return {
+                 lines: parsed.lines,
+                 synced: true,
+                 isWordSynced: true,
+                 error: false
+             };
+        }
+    } catch (e) {
+        console.warn("Gemini parsing/fetch failed", e);
+    }
+    return null;
 };
 
-export default LyricsView;
+export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
+  const wordSyncEnabled = await dbService.getSetting<boolean>('wordSyncEnabled');
+  const geminiApiKey = await dbService.getSetting<string>('geminiApiKey');
+  const { title, artist } = track;
+
+  // 1. Check if existing lyrics in track are already good enough
+  if (track.lyrics && !track.lyrics.error) {
+      if (wordSyncEnabled && track.lyrics.isWordSynced) {
+          return track.lyrics;
+      }
+      // If we don't need word sync, or don't have a key, line sync is fine
+      if (!wordSyncEnabled || !geminiApiKey) {
+          // Check if we have synced lyrics at all
+          if (track.lyrics.synced) return track.lyrics;
+      }
+  }
+
+  let lrcData: { synced?: string, plain?: string } | null = null;
+  let standardResult: Lyrics = { lines: [], synced: false, error: true };
+
+  // 2. Try to fetch reliable lyrics from Lrclib (First Priority)
+  const lrcUrl = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
+  try {
+      const lrcRes = await fetch(lrcUrl);
+      if (lrcRes.ok) {
+          const data = await lrcRes.json();
+          if (data.syncedLyrics) {
+              lrcData = { synced: data.syncedLyrics, plain: data.plainLyrics };
+
+              // Parse using enhanced parser
+              const parsedLines = parseLrc(data.syncedLyrics);
+              const hasWordSync = parsedLines.some(l => l.words && l.words.length > 0);
+
+              standardResult = {
+                  lines: parsedLines,
+                  synced: true,
+                  isWordSynced: hasWordSync,
+                  plain: data.plainLyrics,
+                  error: false
+              };
+          } else if (data.plainLyrics) {
+              lrcData = { plain: data.plainLyrics };
+              standardResult = {
+                  lines: [],
+                  synced: false,
+                  plain: data.plainLyrics,
+                  error: false
+              };
+          }
+      }
+  } catch (e) {
+      console.warn("Lrclib fetch failed", e);
+  }
+
+  // 3. Fallback to Popcat if Lrclib failed
+  if (!lrcData) {
+      const backupUrl = `https://api.popcat.xyz/v2/lyrics?song=${encodeURIComponent(title + " " + artist)}`;
+      try {
+          const backupRes = await fetch(backupUrl);
+          if (backupRes.ok) {
+              const data = await backupRes.json();
+              if (data.lyrics) {
+                  lrcData = { plain: data.lyrics };
+                  standardResult = {
+                      lines: [],
+                      synced: false,
+                      plain: data.lyrics,
+                      error: false
+                  };
+              }
+          }
+      } catch (e) {
+          console.warn("Popcat fetch failed", e);
+      }
+  }
+
+  // 4. Upgrade with Gemini if enabled
+  // ONLY if standard result is NOT word synced already
+  if (wordSyncEnabled && geminiApiKey && !standardResult.isWordSynced) {
+      const geminiLyrics = await getGeminiLyrics(track, geminiApiKey, lrcData || undefined);
+      if (geminiLyrics) {
+          const updatedTrack = { ...track, lyrics: geminiLyrics };
+          await dbService.saveTrack(updatedTrack);
+          return geminiLyrics;
+      }
+  }
+
+  // 5. Return standard result (Lrclib/Popcat)
+  if (!standardResult.error) {
+      const updatedTrack = { ...track, lyrics: standardResult };
+      await dbService.saveTrack(updatedTrack);
+      return standardResult;
+  }
+
+  // 6. Last resort: return whatever we had originally if it wasn't an error
+  if (track.lyrics && !track.lyrics.error) {
+      return track.lyrics;
+  }
+
+  return { lines: [], synced: false, error: true };
+};
