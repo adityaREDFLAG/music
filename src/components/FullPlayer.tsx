@@ -5,7 +5,8 @@ import {
   useMotionValue,
   useTransform,
   useDragControls,
-  useSpring
+  useSpring,
+  PanInfo
 } from 'framer-motion';
 import {
   Shuffle,
@@ -17,6 +18,7 @@ import {
   ListMusic,
   ChevronDown,
   Mic2,
+  MoreHorizontal
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
@@ -86,20 +88,21 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
 
   // Local state for the slider to ensure immediate feedback
-  // When scrubbing, this is the source of truth for the slider position
   const [localScrubValue, setLocalScrubValue] = useState<number | null>(null);
   const isScrubbing = localScrubValue !== null;
 
   // Use props directly
   const { beat } = analyzerData || { beat: false };
 
-  // Memoize color values to prevent recalculation
+  // Memoize color values
   const colors = useMemo(() => ({
     primary: theme?.primary || '#ffffff',
     secondary: theme?.secondary || '#a1a1aa',
     muted: theme?.muted || '#71717a',
-    background: theme?.background || '#09090b'
-  }), [theme?.primary, theme?.secondary, theme?.muted, theme?.background]);
+    background: theme?.background || '#09090b',
+    surface: '#18181b', // Standard surface
+    surfaceVariant: '#27272a'
+  }), [theme]);
 
   // Beat Animations
   const beatScale = useSpring(1, { stiffness: 300, damping: 10 });
@@ -107,8 +110,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   useEffect(() => {
       if (beat && isPlayerOpen) {
-          beatScale.set(1.03); // Pop
-          glowOpacity.set(0.6); // Flash
+          beatScale.set(1.02); // Subtle Pop
+          glowOpacity.set(0.4); // Subtle Flash
           setTimeout(() => {
               beatScale.set(1);
               glowOpacity.set(0);
@@ -121,6 +124,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const dragControls = useDragControls();
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
+  const scale = useTransform(dragY, [0, 200], [1, 0.95]);
+  const borderRadius = useTransform(dragY, [0, 200], [0, 48]); // Animate corner radius on drag
 
   // Display value: Use local value while scrubbing, otherwise global currentTime
   const displayValue = isScrubbing ? localScrubValue : currentTime;
@@ -130,47 +135,35 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
       if (startScrub) startScrub();
   };
 
-  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!isSeekable) return;
-      const value = Number((e.target as HTMLInputElement).value);
-
-      // ONLY update the local UI state. Do NOT call scrub() or handleSeek() here.
+      const value = Number(e.target.value);
       setLocalScrubValue(value);
   };
 
   const handleScrubEnd = () => {
-      // If we have a valid scrub value, commit it now
       if (localScrubValue !== null) {
           handleSeek(localScrubValue);
       }
-
-      // Clear local state so the UI goes back to following the player
       setLocalScrubValue(null);
-
-      // Resume playback logic if needed (handled by handleSeek mostly, but strictly reset flags)
       if (endScrub) endScrub();
   };
 
-  // Improved interaction handler to catch releases outside the slider
   const handleScrubInteractionStart = (e: React.PointerEvent<HTMLInputElement>) => {
+      // Prevent drag propagation to sheet
       e.stopPropagation();
       handleScrubStart();
-
-      // Prevent scrolling on touch devices
-      if (e.pointerType === 'touch') {
-          // CSS touch-action: none is usually better, but this helps prevent propagation
-      }
 
       const onPointerUp = () => {
           handleScrubEnd();
           window.removeEventListener('pointerup', onPointerUp);
           window.removeEventListener('pointercancel', onPointerUp);
       };
-
       window.addEventListener('pointerup', onPointerUp);
       window.addEventListener('pointercancel', onPointerUp);
   };
 
+  // Load tracks for Queue
   useEffect(() => {
     if (!isPlayerOpen) return;
     let isMounted = true;
@@ -196,286 +189,298 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     dbService.setSetting('repeat', next);
   }, [playerState.repeat, setPlayerState]);
 
-  const handleReorder = useCallback((newQueue: string[]) => {
-    setPlayerState(prev => ({ ...prev, queue: newQueue }));
-  }, [setPlayerState]);
+  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (info.offset.y > 150 || info.velocity.y > 300) {
+      onClose();
+    } else {
+      dragY.set(0);
+    }
+  };
 
-  const handleQueuePlayNext = useCallback((trackId: string) => {
-    setPlayerState(prev => {
-      const q = [...prev.queue];
-      const existingIdx = q.indexOf(trackId);
-      if (existingIdx !== -1) {
-        q.splice(existingIdx, 1);
+  // Prevent background scroll when open
+  useEffect(() => {
+      if (isPlayerOpen) {
+          document.body.style.overflow = 'hidden';
+      } else {
+          document.body.style.overflow = '';
       }
-      let newCurrentIdx = q.indexOf(prev.currentTrackId || '');
-      if (newCurrentIdx === -1) newCurrentIdx = 0;
-      q.splice(newCurrentIdx + 1, 0, trackId);
-      return { ...prev, queue: q };
-    });
-  }, [setPlayerState]);
+      return () => { document.body.style.overflow = ''; };
+  }, [isPlayerOpen]);
 
   if (!currentTrack) return null;
-
-  // Use memoized color values
-  const { primary: primaryColor, secondary: secondaryColor, muted: mutedColor, background: backgroundColor } = colors;
 
   return (
     <AnimatePresence>
       {isPlayerOpen && (
         <motion.div
-          key="player"
+          key="player-modal"
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+          transition={{
+              type: 'spring',
+              damping: 30,
+              stiffness: 300,
+              mass: 0.8
+          }}
           drag="y"
           dragControls={dragControls}
-          dragListener={false}
+          dragListener={false} // Only drag via handle or specific areas if needed
           dragConstraints={{ top: 0 }}
-          dragElastic={0.05}
-          style={{ opacity, y: dragY, background: backgroundColor, willChange: 'transform, opacity' }}
-          onDragEnd={(_, i) => {
-            if (i.offset.y > 100 || i.velocity.y > 500) onClose();
-            else dragY.set(0);
+          dragElastic={0.1}
+          onDragEnd={handleDragEnd}
+          style={{
+              y: dragY,
+              opacity,
+              scale,
+              borderTopLeftRadius: borderRadius,
+              borderTopRightRadius: borderRadius
           }}
-          className="fixed inset-0 z-[100] flex flex-col touch-none overflow-hidden"
+          className="fixed inset-0 z-[600] flex flex-col bg-background touch-none overflow-hidden"
         >
-          {/* Dynamic Background */}
-          <motion.div
-            animate={{ background: `linear-gradient(to bottom, ${primaryColor}40, ${backgroundColor})` }}
-            transition={{ duration: 0.8 }}
-            className="absolute inset-0 -z-20"
-          />
-
-          {/* Background Blur Image */}
-          <div className="absolute inset-0 -z-10 overflow-hidden">
-            <motion.img
+          {/* Dynamic Ambient Background */}
+          <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
+             <motion.div
+               animate={{ background: `linear-gradient(to bottom, ${colors.primary}30, ${colors.background})` }}
+               transition={{ duration: 1 }}
+               className="absolute inset-0"
+             />
+             <motion.img
               key={currentTrack.coverArt}
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.4 }}
-              transition={{ duration: 1 }}
+              animate={{ opacity: 0.3 }}
+              transition={{ duration: 1.5 }}
               src={currentTrack.coverArt}
-              className="w-full h-full object-cover blur-[100px] scale-125 brightness-75"
+              className="w-full h-full object-cover blur-[120px] scale-150 opacity-30"
               alt=""
             />
-            {/* Grain Overlay */}
-            <div className="absolute inset-0 opacity-[0.05] mix-blend-overlay"
-                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
+            <div className="absolute inset-0 bg-black/20" />
+            {/* Grain */}
+            <div className="absolute inset-0 opacity-[0.03] mix-blend-overlay"
+                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")` }}
             />
           </div>
 
-          {/* Drag Handle */}
+          {/* Header / Drag Handle */}
           <div 
-            onPointerDown={(e) => dragControls.start(e)}
-            className="h-12 w-full flex items-center justify-center cursor-grab active:cursor-grabbing z-20"
+             className="flex-none h-14 w-full flex items-center justify-center cursor-grab active:cursor-grabbing z-20"
+             onPointerDown={(e) => dragControls.start(e)}
           >
-            <div className="w-12 h-1.5 bg-white/20 rounded-full hover:bg-white/40 transition-colors" />
+            <div className="w-16 h-1.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors" />
           </div>
 
-          <main className="flex-1 px-8 pb-10 flex flex-col landscape:flex-row items-center justify-center gap-8 landscape:gap-16">
+          {/* Main Content */}
+          <main className="flex-1 flex flex-col landscape:flex-row items-center justify-center px-6 pb-safe pt-2 gap-8 landscape:gap-16 max-w-7xl mx-auto w-full">
             
-            {/* Left: Artwork */}
-            <div className="w-full max-w-[360px] landscape:max-w-[400px] aspect-square relative flex items-center justify-center">
-              <AnimatePresence mode="wait">
-                {showLyrics ? (
-                  <motion.div
-                     key="lyrics"
-                     initial={{ opacity: 0, scale: 0.95 }}
-                     animate={{ opacity: 1, scale: 1 }}
-                     exit={{ opacity: 0, scale: 0.95 }}
-                     className="absolute inset-0 rounded-2xl overflow-hidden"
-                  >
-                     <LyricsView
-                       track={currentTrack}
-                       currentTime={currentTime}
-                       onSeek={handleSeek}
-                       onClose={() => setShowLyrics(false)}
-                       onTrackUpdate={onTrackUpdate}
-                     />
-                  </motion.div>
-                ) : showQueue ? (
-                  <motion.div
-                    key="queue"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="absolute inset-0 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden flex flex-col"
-                  >
-                    <QueueList
-                      queue={playerState.queue}
-                      currentTrackId={playerState.currentTrackId}
-                      tracks={tracks}
-                      onReorder={handleReorder}
-                      onPlay={(id) => playTrack(id, { fromQueue: true })}
-                      onRemove={onRemoveTrack || (() => {})}
-                      onPlayNext={handleQueuePlayNext}
-                      onClose={() => setShowQueue(false)}
-                    />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="art"
-                    layoutId="albumArt"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{
-                        opacity: 1,
-                        scale: playerState.isPlaying ? 1 : 0.9
-                    }}
-                    style={{ scale: playerState.isPlaying ? beatScale : 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.4, type: 'spring', bounce: 0.2 }}
-                    className="relative w-full h-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden"
-                  >
-                     <img
-                      src={currentTrack.coverArt}
-                      className="w-full h-full object-cover"
-                      alt="Album Art"
-                    />
-                    {/* Beat Glow Flash */}
+            {/* --- LEFT: ARTWORK / QUEUE / LYRICS --- */}
+            <div className="w-full max-w-[380px] landscape:max-w-[420px] aspect-square relative flex-shrink-0">
+               <AnimatePresence mode="wait">
+                 {showLyrics ? (
+                   <motion.div
+                      key="lyrics"
+                      initial={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                      animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                      exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 rounded-[32px] overflow-hidden bg-black/20 backdrop-blur-md border border-white/5"
+                   >
+                      <LyricsView
+                        track={currentTrack}
+                        currentTime={currentTime}
+                        onSeek={handleSeek}
+                        onClose={() => setShowLyrics(false)}
+                        onTrackUpdate={onTrackUpdate}
+                      />
+                   </motion.div>
+                 ) : showQueue ? (
                     <motion.div
-                        style={{ opacity: glowOpacity, background: primaryColor }}
-                        className="absolute inset-0 mix-blend-overlay pointer-events-none"
-                    />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                      key="queue"
+                      initial={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                      animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                      exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 rounded-[32px] overflow-hidden bg-black/20 backdrop-blur-md border border-white/5 flex flex-col"
+                    >
+                      <QueueList
+                        queue={playerState.queue}
+                        currentTrackId={playerState.currentTrackId}
+                        tracks={tracks}
+                        onReorder={(q) => setPlayerState(p => ({ ...p, queue: q }))}
+                        onPlay={(id) => playTrack(id, { fromQueue: true })}
+                        onRemove={onRemoveTrack || (() => {})}
+                        onPlayNext={(id) => { /* logic */ }}
+                        onClose={() => setShowQueue(false)}
+                      />
+                    </motion.div>
+                 ) : (
+                   <motion.div
+                     key="art"
+                     layoutId={`artwork-${currentTrack.id}`} // Shared element match
+                     className="relative w-full h-full rounded-[32px] overflow-hidden shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] ring-1 ring-white/10"
+                     style={{ scale: playerState.isPlaying ? beatScale : 1 }}
+                   >
+                     <img
+                       src={currentTrack.coverArt}
+                       className="w-full h-full object-cover"
+                       alt="Album Art"
+                     />
+                     {/* Beat Flash */}
+                     <motion.div
+                         style={{ opacity: glowOpacity, background: colors.primary }}
+                         className="absolute inset-0 mix-blend-overlay pointer-events-none"
+                     />
+                   </motion.div>
+                 )}
+               </AnimatePresence>
             </div>
 
-            {/* Right: Info & Controls */}
-            <div className="w-full max-w-[380px] flex flex-col justify-center gap-6">
-              
-              {/* Text Info */}
-              <div className="text-center landscape:text-left">
-                <motion.h1
-                    animate={{ color: theme?.primary ? '#ffffff' : '#ffffff' }}
-                    className="text-2xl md:text-3xl font-bold leading-tight line-clamp-1"
-                    title={currentTrack.title}
-                >
-                  {currentTrack.title}
-                </motion.h1>
-                <motion.p
-                    animate={{ color: mutedColor }}
-                    className="text-lg line-clamp-1 mt-1 font-medium"
-                    title={currentTrack.artist}
-                >
-                  {currentTrack.artist}
-                </motion.p>
-              </div>
+            {/* --- RIGHT: INFO & CONTROLS --- */}
+            <div className="w-full max-w-[380px] flex flex-col gap-8 justify-center">
 
-              {/* Progress Slider */}
-              <div className="group relative pt-4 pb-2">
-                <div className="relative h-1.5 w-full bg-white/10 rounded-full group-hover:h-2 transition-all overflow-visible">
-                  <motion.div
-                    animate={{ backgroundColor: primaryColor }}
-                    className="absolute h-full rounded-full pointer-events-none origin-left"
-                    style={{ width: `${(displayValue / safeDuration) * 100}%`, willChange: 'width' }}
-                  />
-                  {/* Beat Pulse Overlay on Bar */}
-                  {playerState.isPlaying && (
-                      <motion.div
-                        animate={{ opacity: beat ? 0.5 : 0 }}
-                        transition={{ duration: 0.1 }}
-                        className="absolute h-full w-full bg-white mix-blend-overlay pointer-events-none"
-                      />
-                  )}
-                </div>
+               {/* Track Info */}
+               <div className="flex flex-col gap-1 items-start">
+                  <motion.h1
+                    layoutId={`title-${currentTrack.id}`}
+                    className="text-3xl font-bold leading-tight text-white line-clamp-2 text-left"
+                  >
+                    {currentTrack.title}
+                  </motion.h1>
+                  <motion.button
+                    layoutId={`artist-${currentTrack.id}`}
+                    className="text-xl text-zinc-400 font-medium hover:text-white transition-colors text-left"
+                  >
+                    {currentTrack.artist}
+                  </motion.button>
+               </div>
 
-                <input
+               {/* Seek Slider */}
+               <div className="group relative w-full touch-none select-none py-2">
+                  {/* Track Background */}
+                  <div className="relative h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                     {/* Progress Fill */}
+                     <motion.div
+                        className="absolute top-0 left-0 h-full bg-white rounded-full"
+                        style={{ width: `${(displayValue / safeDuration) * 100}%` }}
+                     />
+                     {/* Beat Pulse */}
+                     {playerState.isPlaying && (
+                         <motion.div
+                            animate={{ opacity: beat ? 0.6 : 0 }}
+                            className="absolute inset-0 bg-white mix-blend-overlay"
+                         />
+                     )}
+                  </div>
+
+                  {/* Interaction Input */}
+                  <input
                     type="range"
                     min={0}
                     max={safeDuration}
-                    step={0.1} // High resolution for smooth dragging
+                    step={0.1}
                     value={displayValue}
                     disabled={!isSeekable}
                     onChange={handleScrubChange}
                     onPointerDown={(e) => isSeekable && handleScrubInteractionStart(e)}
-                    className={`absolute -inset-x-0 -top-2.5 w-full h-6 opacity-0 z-50 ${isSeekable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-                    style={{ pointerEvents: 'auto', bottom: '-8px' }}
+                    className="absolute inset-0 w-full h-6 opacity-0 cursor-pointer -top-2"
                   />
 
-                <div className="flex justify-between mt-2 text-xs font-medium font-mono" style={{ color: mutedColor }}>
-                  <span>{formatTime(displayValue)}</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-              </div>
+                  {/* Time Labels */}
+                  <div className="flex justify-between mt-2 text-xs font-medium text-zinc-500 font-mono tracking-wide">
+                    <span>{formatTime(displayValue)}</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+               </div>
 
-              {/* Main Controls */}
-              <div className="flex items-center justify-between">
-                <button 
-                    onClick={toggleShuffle} 
-                    className={`p-2 rounded-full transition-colors`}
-                    style={{ color: playerState.shuffle ? primaryColor : mutedColor, backgroundColor: playerState.shuffle ? `${primaryColor}20` : 'transparent' }}
-                >
-                  <Shuffle size={20} />
-                </button>
-
-                <div className="flex items-center gap-6">
-                  <button onClick={prevTrack} className="hover:scale-110 active:scale-90 transition-transform" style={{ color: secondaryColor }}>
-                    <SkipBack size={32} fill="currentColor" />
-                  </button>
-                  
+               {/* Playback Controls */}
+               <div className="flex items-center justify-between -mx-2">
                   <motion.button
-                    onClick={togglePlay}
-                    whileTap={{ scale: 0.9 }}
-                    animate={{ scale: beat ? 1.05 : 1 }}
-                    style={{ backgroundColor: primaryColor, color: backgroundColor }}
-                    className="w-20 h-20 rounded-full flex items-center justify-center shadow-lg transition-colors"
+                     whileTap={{ scale: 0.9 }}
+                     onClick={toggleShuffle}
+                     className={`p-3 rounded-full transition-colors ${playerState.shuffle ? 'bg-primary/20 text-primary' : 'text-zinc-500 hover:bg-white/5'}`}
                   >
-                    {playerState.isPlaying ? 
-                      <Pause size={36} fill="currentColor" /> :
-                      <Play size={36} fill="currentColor" className="ml-1" />
-                    }
+                    <Shuffle size={22} />
                   </motion.button>
-                  
-                  <button onClick={nextTrack} className="hover:scale-110 active:scale-90 transition-transform" style={{ color: secondaryColor }}>
-                    <SkipForward size={32} fill="currentColor" />
-                  </button>
-                </div>
 
-                <button 
-                    onClick={toggleRepeat} 
-                    className={`p-2 relative rounded-full transition-colors`}
-                    style={{ color: playerState.repeat !== 'OFF' ? primaryColor : mutedColor, backgroundColor: playerState.repeat !== 'OFF' ? `${primaryColor}20` : 'transparent' }}
-                >
-                  <Repeat size={20} />
-                  {playerState.repeat === 'ONE' && (
-                    <span className="absolute top-1 right-1.5 text-[7px] px-0.5 rounded-[2px] font-bold leading-none" style={{ backgroundColor: primaryColor, color: backgroundColor }}>1</span>
-                  )}
-                </button>
-              </div>
+                  <div className="flex items-center gap-6">
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={prevTrack}
+                      className="text-zinc-200 hover:text-white p-2"
+                    >
+                      <SkipBack size={36} fill="currentColor" />
+                    </motion.button>
 
-              {/* Bottom Row (Queue & Lyrics) */}
-              <div className="flex items-center justify-between mt-4 px-1">
-                <button
-                  onClick={() => {
-                    setShowLyrics(!showLyrics);
-                    if (!showLyrics) setShowQueue(false);
-                  }}
-                  className={`p-3 rounded-full transition-all`}
-                  style={{
-                      backgroundColor: showLyrics ? primaryColor : 'rgba(255,255,255,0.05)',
-                      color: showLyrics ? backgroundColor : mutedColor
-                  }}
-                >
-                  <Mic2 size={20} />
-                </button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={togglePlay}
+                      animate={{ scale: beat ? 1.05 : 1 }}
+                      className="w-20 h-20 rounded-[28px] bg-white text-black flex items-center justify-center shadow-lg shadow-white/10 hover:shadow-white/20 transition-all"
+                    >
+                      {playerState.isPlaying ?
+                        <Pause size={32} fill="currentColor" /> :
+                        <Play size={32} fill="currentColor" className="ml-1" />
+                      }
+                    </motion.button>
 
-                <button 
-                  onClick={() => {
-                    setShowQueue(!showQueue);
-                    if (!showQueue) setShowLyrics(false);
-                  }}
-                  className={`p-3 rounded-full transition-all`}
-                  style={{
-                      backgroundColor: showQueue ? primaryColor : 'rgba(255,255,255,0.05)',
-                      color: showQueue ? backgroundColor : mutedColor
-                  }}
-                >
-                  {showQueue ? <ChevronDown size={20} /> : <ListMusic size={20} />}
-                </button>
-              </div>
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={nextTrack}
+                      className="text-zinc-200 hover:text-white p-2"
+                    >
+                      <SkipForward size={36} fill="currentColor" />
+                    </motion.button>
+                  </div>
 
+                  <motion.button
+                     whileTap={{ scale: 0.9 }}
+                     onClick={toggleRepeat}
+                     className={`p-3 rounded-full transition-colors relative ${playerState.repeat !== 'OFF' ? 'bg-primary/20 text-primary' : 'text-zinc-500 hover:bg-white/5'}`}
+                  >
+                    <Repeat size={22} />
+                    {playerState.repeat === 'ONE' && (
+                        <span className="absolute top-1.5 right-2 text-[8px] font-black">1</span>
+                    )}
+                  </motion.button>
+               </div>
+
+               {/* Bottom Actions (Queue / Lyrics) */}
+               <div className="flex items-center justify-center gap-4 mt-2">
+                  <div className="h-14 bg-white/5 rounded-full p-1 flex items-center backdrop-blur-md border border-white/5">
+                    <button
+                       onClick={() => { setShowLyrics(true); setShowQueue(false); }}
+                       className={`h-full px-6 rounded-full flex items-center justify-center gap-2 transition-all font-medium text-sm ${showLyrics ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      <Mic2 size={18} />
+                      Lyrics
+                    </button>
+                    <div className="w-px h-6 bg-white/10 mx-1" />
+                    <button
+                       onClick={() => { setShowQueue(true); setShowLyrics(false); }}
+                       className={`h-full px-6 rounded-full flex items-center justify-center gap-2 transition-all font-medium text-sm ${showQueue ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white'}`}
+                    >
+                      <ListMusic size={18} />
+                      Queue
+                    </button>
+                  </div>
+
+                  {/* Close Button (if showing overlay) */}
+                  <AnimatePresence>
+                     {(showLyrics || showQueue) && (
+                       <motion.button
+                         initial={{ scale: 0, opacity: 0 }}
+                         animate={{ scale: 1, opacity: 1 }}
+                         exit={{ scale: 0, opacity: 0 }}
+                         onClick={() => { setShowLyrics(false); setShowQueue(false); }}
+                         className="h-14 w-14 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md border border-white/5"
+                       >
+                         <ChevronDown size={24} />
+                       </motion.button>
+                     )}
+                  </AnimatePresence>
+               </div>
             </div>
+
           </main>
         </motion.div>
       )}

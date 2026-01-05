@@ -629,7 +629,7 @@ export const useAudioPlayer = (
 
            if (player.repeat === RepeatMode.ONE) {
                audioElement.currentTime = 0;
-               audioElement.play();
+               audioElement.play().catch(e => console.warn("Replay failed (interaction needed?)", e));
            } else {
                nextTrack();
            }
@@ -649,8 +649,11 @@ export const useAudioPlayer = (
       const onInterruptionEnd = () => {
           // iOS requires a tiny timeout or user interaction, but sometimes
           // just calling play() here works if the interruption was temporary
-          if (player.isPlaying) {
-               audioElement.play().catch(console.error);
+          if (player.isPlaying && audioElement.paused) {
+               // Try to resume
+               resumeAudioContext().then(() => {
+                   audioElement.play().catch(console.error);
+               });
           }
       };
 
