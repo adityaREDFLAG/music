@@ -19,6 +19,7 @@ export interface Track {
   energy?: number; // 0.0 - 1.0
   playCount?: number;
   lastPlayed?: number;
+  isFavorite?: boolean;
 }
 
 export interface Playlist {

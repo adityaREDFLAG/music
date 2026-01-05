@@ -17,6 +17,7 @@ import {
   ListMusic,
   ChevronDown,
   Mic2,
+  Heart,
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
@@ -344,22 +345,39 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
             {/* Right: Info & Controls */}
             <div className="w-full max-w-[380px] flex flex-col justify-center gap-6">
               
-              {/* Text Info */}
-              <div className="text-center landscape:text-left">
-                <motion.h1
-                    animate={{ color: theme?.primary ? '#ffffff' : '#ffffff' }}
-                    className="text-2xl md:text-3xl font-bold leading-tight line-clamp-1"
-                    title={currentTrack.title}
-                >
-                  {currentTrack.title}
-                </motion.h1>
-                <motion.p
-                    animate={{ color: mutedColor }}
-                    className="text-lg line-clamp-1 mt-1 font-medium"
-                    title={currentTrack.artist}
-                >
-                  {currentTrack.artist}
-                </motion.p>
+              {/* Text Info & Favorite */}
+              <div className="flex items-center justify-between">
+                  <div className="text-left flex-1 min-w-0">
+                    <motion.h1
+                        animate={{ color: theme?.primary ? '#ffffff' : '#ffffff' }}
+                        className="text-2xl md:text-3xl font-bold leading-tight line-clamp-1"
+                        title={currentTrack.title}
+                    >
+                      {currentTrack.title}
+                    </motion.h1>
+                    <motion.p
+                        animate={{ color: mutedColor }}
+                        className="text-lg line-clamp-1 mt-1 font-medium"
+                        title={currentTrack.artist}
+                    >
+                      {currentTrack.artist}
+                    </motion.p>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        dbService.toggleFavorite(currentTrack.id).then(updatedTrack => {
+                            if (updatedTrack && onTrackUpdate) {
+                                onTrackUpdate(updatedTrack);
+                            }
+                        });
+                    }}
+                    className="p-3 rounded-full hover:bg-white/10 transition-colors"
+                    style={{ color: currentTrack.isFavorite ? primaryColor : mutedColor }}
+                  >
+                     <Heart size={24} fill={currentTrack.isFavorite ? "currentColor" : "none"} strokeWidth={currentTrack.isFavorite ? 0 : 2} />
+                  </button>
               </div>
 
               {/* Progress Slider */}
