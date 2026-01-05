@@ -59,22 +59,31 @@ export const parseLrc = (lrc: string): Lyrics => {
     const content = match[2].trim();
     
     // 2. Parse Word Tags <mm:ss.xx>
-    const wordTagRegex = /(<\d{1,2}:\d{2}\.\d{1,3}>)|([^\<]+)/g;
+    // We split by the tag, capturing the tag itself.
+    // Example: "Word <00:01> Two" -> ["Word ", "<00:01>", " Two"]
+    const parts = content.split(/(<\d{1,2}:\d{2}\.\d{1,3}>)/);
     const words: LyricWord[] = [];
     let currentTime = lineTime;
 
-    let m;
-    while ((m = wordTagRegex.exec(content)) !== null) {
-      if (m[1]) {
-        // it’s a tag
-        const t = parseTime(m[1].slice(1, -1));
-        if (t !== null) currentTime = t;
-      } else {
-        // it’s text
-        const text = m[2].trim();
-        if (text) words.push({ time: currentTime, text });
-      }
-    }
+    parts.forEach((part) => {
+        if (!part) return; // Skip empty strings from split
+
+        if (part.startsWith('<') && part.endsWith('>')) {
+            // It's likely a tag
+            const timeStr = part.slice(1, -1);
+            const t = parseTime(timeStr);
+            if (t !== null) {
+                currentTime = t;
+                return;
+            }
+        }
+
+        // It's text
+        const text = part.trim();
+        if (text) {
+            words.push({ time: currentTime, text });
+        }
+    });
 
     // 3. Construct Line
     if (words.length > 0) {
@@ -193,9 +202,9 @@ export const fetchLyrics = async (track: Track, force = false): Promise<Lyrics> 
       if (res.ok) {
         const searchData = await res.json();
         if (Array.isArray(searchData)) {
-           // Filter candidates: must match duration within 5 seconds
+           // Filter candidates: must match duration within 15 seconds (increased tolerance)
            const candidates = searchData.filter((item: any) => 
-             Math.abs(item.duration - track.duration) < 5
+             Math.abs(item.duration - track.duration) < 15
            );
 
            // Prioritize: Find first candidate with word-level timestamps (A-LRC format)

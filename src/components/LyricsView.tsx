@@ -184,20 +184,26 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         >
                              <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
                                {line.words.map((word, wIdx) => {
-                                   const isWordActive = isActive && currentTime >= word.time && 
-                                       (wIdx === line.words!.length - 1 || currentTime < line.words![wIdx + 1].time);
+                                   const nextWordTime = line.words![wIdx + 1]?.time ?? Infinity;
                                    
-                                   // Also highlight past words in the active line
-                                   const isWordPast = isActive && currentTime >= word.time;
+                                   // Is this exact word currently being sung?
+                                   const isWordActive = isActive && currentTime >= word.time && currentTime < nextWordTime;
+
+                                   // Has this word already passed (fully sung)?
+                                   const isWordPast = isActive && currentTime >= nextWordTime;
 
                                    return (
                                        <span 
                                          key={wIdx}
-                                         className={`transition-colors duration-200 ${
-                                             isActive 
-                                               ? (isWordPast ? 'text-white drop-shadow-md' : 'text-white/40')
-                                               : 'text-inherit' 
-                                         }`}
+                                         className="transition-all duration-200 inline-block origin-bottom"
+                                         style={{
+                                             color: isActive
+                                                 ? (isWordActive ? '#ffffff' : isWordPast ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)')
+                                                 : 'inherit',
+                                             transform: isWordActive ? 'scale(1.15)' : 'scale(1)',
+                                             textShadow: isWordActive ? '0 0 20px rgba(255,255,255,0.6)' : 'none',
+                                             fontWeight: isWordActive ? 800 : 'inherit'
+                                         }}
                                        >
                                            {word.text}
                                        </span>
