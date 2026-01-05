@@ -151,7 +151,7 @@ export const extractDominantColor = async (imageUrl: string): Promise<ThemePalet
       // 1. Background: Based on primary but very dark
       // We want background to be colored but dark (e.g. L < 0.1)
       const bgBase = sortedBuckets[0] || {r:10, g:10, b:10}; // Use most dominant for BG base
-      const backgroundRGB = ensureDarkness(bgBase, 0.08); // Max 8% lightness for background
+      const backgroundRGB = ensureDarkness(bgBase, 0.2); // Relaxed to 20% to allow richer colors (like brown)
 
       // 2. Primary: Main accent color. Should be visible on background.
       // Use the most dominant color, but ensure it's light enough (e.g. L > 0.5)

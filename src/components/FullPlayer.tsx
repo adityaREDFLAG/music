@@ -154,11 +154,26 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
     setScrubValue(newVal);
   };
 
-  const onSeekEnd = () => {
+  const onSeekEnd = useCallback(() => {
     handleSeek(scrubValue);
     setIsScrubbing(false);
     if (endScrub) endScrub();
-  };
+  }, [handleSeek, scrubValue, endScrub]);
+
+  // Global pointer up listener to ensure seek ends even if released outside the input
+  useEffect(() => {
+    if (isScrubbing) {
+      const handleGlobalUp = () => {
+        onSeekEnd();
+      };
+      window.addEventListener('pointerup', handleGlobalUp);
+      window.addEventListener('pointercancel', handleGlobalUp);
+      return () => {
+        window.removeEventListener('pointerup', handleGlobalUp);
+        window.removeEventListener('pointercancel', handleGlobalUp);
+      };
+    }
+  }, [isScrubbing, onSeekEnd]);
 
   // Load tracks for Queue
   useEffect(() => {
@@ -218,12 +233,13 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
           dragConstraints={{ top: 0 }}
           dragElastic={0.1}
           onDragEnd={handleDragEnd}
-          className="fixed inset-0 z-[600] flex flex-col bg-background touch-none overflow-hidden"
+          className="fixed inset-0 z-[600] flex flex-col touch-none overflow-hidden"
+          style={{ backgroundColor: colors.background }} // Dynamic background color
         >
           {/* --- AMBIENT BACKGROUND --- */}
           <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
              <motion.div
-               animate={{ background: `linear-gradient(to bottom, ${colors.primary}40, ${colors.background})` }}
+               animate={{ background: `linear-gradient(to bottom, ${colors.primary}15, ${colors.background}E6)` }}
                transition={{ duration: 1.5 }}
                className="absolute inset-0"
              />
@@ -344,21 +360,22 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     <div className="absolute top-1/2 left-0 w-full h-1.5 bg-white/10 rounded-full overflow-hidden -translate-y-1/2 group-hover:h-2.5 transition-all duration-300">
                         {/* Progress Bar */}
                         <motion.div 
-                           className="h-full bg-white rounded-full relative"
-                           style={{ width: `${(scrubValue / safeDuration) * 100}%` }}
+                           className="h-full rounded-full relative"
+                           style={{ width: `${(scrubValue / safeDuration) * 100}%`, backgroundColor: colors.primary }}
                         >
                             {/* Glow at the tip */}
-                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-full bg-white shadow-[0_0_10px_2px_rgba(255,255,255,0.5)]" />
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-full shadow-[0_0_10px_2px_rgba(255,255,255,0.5)]" style={{ backgroundColor: colors.primary }} />
                         </motion.div>
                     </div>
 
                     {/* The Thumb (Visual only, follows calculation) fckin hell */}
                     <div 
-                        className="absolute h-4 w-4 bg-white rounded-full shadow-lg pointer-events-none transition-transform duration-100 ease-out"
+                        className="absolute h-4 w-4 rounded-full shadow-lg pointer-events-none transition-transform duration-100 ease-out"
                         style={{ 
                             left: `${(scrubValue / safeDuration) * 100}%`,
                             transform: `translate(-50%, -50%) scale(${isScrubbing ? 1.5 : 0})`,
-                            top: '50%'
+                            top: '50%',
+                            backgroundColor: colors.primary
                         }} 
                     />
 
@@ -371,7 +388,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                       value={scrubValue}
                       onChange={onSeekChange}
                       onPointerDown={onSeekStart}
-                      onPointerUp={onSeekEnd} // Trigger seek on release
+                      // onPointerUp removed: handled by global listener
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     />
                  </div>
