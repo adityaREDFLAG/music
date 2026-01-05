@@ -1,213 +1,232 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, AlertCircle, Music2 } from 'lucide-react';
-import { Track, LyricLine } from '../types'; // Assuming LyricWord is part of LyricLine
 import { fetchLyrics } from '../utils/lyrics';
+import { Track, Lyrics } from '../types';
+import { Loader2, Music2 } from 'lucide-react';
 
 interface LyricsViewProps {
   track: Track;
   currentTime: number;
   onSeek: (time: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
   onTrackUpdate?: (track: Track) => void;
 }
 
-const LyricsView: React.FC<LyricsViewProps> = ({
-  track,
-  currentTime,
-  onSeek,
-  onClose,
-  onTrackUpdate,
-}) => {
+const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onTrackUpdate }) => {
+  const [lyrics, setLyrics] = useState<Lyrics | null>(track.lyrics || null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
-  const [isWordSynced, setIsWordSynced] = useState(false);
-  
+  const [activeLineIndex, setActiveLineIndex] = useState(-1);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  // State to track auto-scroll; ref is better for mute updates, but state forces re-render if needed
-  const isAutoScrolling = useRef(true);
   const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // 1. Efficient Lyric Loading
+  // Fetch Lyrics
   useEffect(() => {
-    let isMounted = true;
-    
-    const loadLyrics = async () => {
-      // Use cached lyrics if available
-      if (track.lyrics && !track.lyrics.error && track.lyrics.lines.length > 0) {
-        setLyrics(track.lyrics.lines);
-        setIsWordSynced(!!track.lyrics.isWordSynced);
+    let mounted = true;
+    const load = async () => {
+      // Optimistic render: If the track already has lyrics, use them immediately
+      // This prevents layout shift/loading state if we have data
+      if (track.lyrics && !track.lyrics.error) {
+        setLyrics(track.lyrics);
         setLoading(false);
-        return;
+      } else {
+        // Only show loading if we have nothing
+        setLoading(true);
+        setLyrics(null);
+        setActiveLineIndex(-1);
       }
 
-      setLoading(true);
-      setError(false);
-      
       try {
-        const result = await fetchLyrics(track);
-        if (isMounted) {
-          if (result.error || result.lines.length === 0) {
-            setError(true);
-          } else {
-            setLyrics(result.lines);
-            setIsWordSynced(!!result.isWordSynced);
-            if (onTrackUpdate) onTrackUpdate({ ...track, lyrics: result });
+        // Always attempt to fetch/upgrade lyrics
+        // (e.g., if user enabled Word Sync but we only have Line Sync)
+        const data = await fetchLyrics(track);
+        
+        if (mounted) {
+          // Only update if we got *new* lyrics (reference check works because fetchLyrics returns track.lyrics if unchanged)
+          // Or if we had no lyrics before
+          if (data !== track.lyrics) {
+              setLyrics(data);
+              if (onTrackUpdate && !data.error) {
+                 onTrackUpdate({ ...track, lyrics: data });
+              }
           }
         }
-      } catch (err) {
-        if (isMounted) setError(true);
+      } catch (error) {
+        console.error("Failed to load lyrics:", error);
       } finally {
-        if (isMounted) setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
+    load();
+    return () => { mounted = false; };
+  }, [track.id, track.title, track.artist]); // Re-run if track changes
 
-    loadLyrics();
-    return () => { isMounted = false; };
-  }, [track.id]);
+  // Sync Active Line
+  useEffect(() => {
+    if (!lyrics || !lyrics.synced) return;
 
-  // 2. High Performance Active Line Calculation
-  const activeLineIndex = useMemo(() => {
-    if (lyrics.length === 0) return -1;
-    // findLastIndex is more efficient for this, but simple loop is fine for <200 lines
-    // We iterate backwards to find the first line that satisfies the condition
-    for (let i = lyrics.length - 1; i >= 0; i--) {
-      if (currentTime >= lyrics[i].time) {
-        return i;
+    // Find the current line (last line where time <= currentTime)
+    const index = lyrics.lines.findIndex((line, i) => {
+      const nextLine = lyrics.lines[i + 1];
+      return line.time <= currentTime && (!nextLine || nextLine.time > currentTime);
+    });
+
+    if (index !== -1 && index !== activeLineIndex) {
+      setActiveLineIndex(index);
+    }
+  }, [currentTime, lyrics, activeLineIndex]);
+
+  // Handle User Interaction (Scroll)
+  const handleUserScroll = useCallback(() => {
+    setIsUserScrolling(true);
+    if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+
+    userScrollTimeout.current = setTimeout(() => {
+      setIsUserScrolling(false);
+    }, 3000);
+  }, []);
+
+  // Cleanup timeout
+  useEffect(() => {
+    return () => {
+      if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+    };
+  }, []);
+
+  // Auto Scroll logic
+  useEffect(() => {
+    if (activeLineIndex !== -1 && scrollRef.current && !isUserScrolling) {
+      const activeEl = scrollRef.current.children[activeLineIndex] as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-    return -1;
-  }, [currentTime, lyrics]);
+  }, [activeLineIndex, isUserScrolling]);
 
-  // 3. Smooth Auto-Scrolling
-  useEffect(() => {
-    if (!isAutoScrolling.current || activeLineIndex === -1 || !containerRef.current) return;
-
-    const activeEl = document.getElementById(`lyric-line-${activeLineIndex}`);
-    if (activeEl) {
-      activeEl.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
-    }
-  }, [activeLineIndex]); // Only trigger when index changes, not every millisecond
-
-  const handleUserInteraction = () => {
-    isAutoScrolling.current = false;
-    if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
-    
-    // Resume auto-scroll after 3 seconds of inactivity
-    userScrollTimeout.current = setTimeout(() => {
-      isAutoScrolling.current = true;
-    }, 3000);
-  };
-
-  const handleLineClick = (time: number) => {
-    onSeek(time);
-    isAutoScrolling.current = true; // Snap back immediately on click
-  };
-
-  // --- Render States ---
-
-  if (loading) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center text-white/50 gap-4">
-        <Loader2 className="animate-spin w-8 h-8" />
-        <span className="text-sm font-medium tracking-wide">Syncing Lyrics...</span>
-      </div>
-    );
-  }
-
-  if (error || lyrics.length === 0) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center text-white/50 gap-6 p-8">
-        <div className="bg-white/10 p-6 rounded-full backdrop-blur-md">
-          <Music2 className="w-12 h-12 opacity-50" />
+  // Render Content
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div className="w-full h-full flex flex-col items-center justify-center text-white/50">
+          <Loader2 className="animate-spin mb-4" size={32} />
+          <p className="font-medium tracking-wide">Loading Lyrics...</p>
         </div>
-        <div className="text-center space-y-2">
-          <h3 className="text-lg font-medium text-white">Lyrics not available</h3>
-          <p className="text-sm text-white/40 max-w-xs mx-auto">
-            We couldn't fetch the lyrics for this track. It might be instrumental.
+      );
+    }
+
+    if (!lyrics || (lyrics.lines.length === 0 && !lyrics.plain)) {
+       return (
+        <div className="w-full h-full flex flex-col items-center justify-center text-white/50 px-8 text-center">
+          <Music2 className="mb-6 opacity-40" size={56} />
+          <p className="text-xl font-bold mb-2">No Lyrics Found</p>
+          <p className="text-sm opacity-60 max-w-[200px]">
+            We couldn't find lyrics for this song.
           </p>
         </div>
-        <button 
-          onClick={onClose}
-          className="px-8 py-3 rounded-full bg-white text-black font-semibold hover:bg-gray-200 transition-colors"
-        >
-          Close View
-        </button>
+      );
+    }
+
+    if (!lyrics.synced && lyrics.plain) {
+        // Plain text fallback
+        return (
+            <div className="w-full h-full overflow-y-auto px-8 py-12 text-center no-scrollbar mask-image-gradient">
+                <p className="text-white/90 whitespace-pre-wrap text-xl leading-relaxed font-medium">
+                    {lyrics.plain}
+                </p>
+            </div>
+        );
+    }
+
+    return (
+      <div
+        ref={containerRef}
+        onWheel={handleUserScroll}
+        onTouchMove={handleUserScroll}
+        className="w-full h-full overflow-y-auto px-4 py-[50vh] no-scrollbar mask-image-gradient"
+        style={{ scrollBehavior: 'smooth' }}
+      >
+        <div ref={scrollRef} className="flex flex-col gap-8 text-left pl-4 pr-2">
+            {lyrics.lines.map((line, i) => {
+                const isActive = i === activeLineIndex;
+                const isPast = i < activeLineIndex;
+                
+                // Word-level Sync Rendering
+                if (lyrics.isWordSynced && line.words && line.words.length > 0) {
+                     return (
+                        <motion.div
+                            key={i}
+                            onClick={() => onSeek(line.time)}
+                            initial={false}
+                            animate={{
+                                scale: isActive ? 1.05 : 1,
+                                opacity: isActive ? 1 : isPast ? 0.4 : 0.6,
+                                filter: isActive ? 'blur(0px)' : 'blur(0.5px)'
+                            }}
+                            className="cursor-pointer origin-left"
+                        >
+                             <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
+                               {line.words.map((word, wIdx) => {
+                                   const isWordActive = isActive && currentTime >= word.time && 
+                                       (wIdx === line.words!.length - 1 || currentTime < line.words![wIdx + 1].time);
+                                   
+                                   // Also highlight past words in the active line
+                                   const isWordPast = isActive && currentTime >= word.time;
+
+                                   return (
+                                       <span 
+                                         key={wIdx}
+                                         className={`transition-colors duration-200 ${
+                                             isActive 
+                                               ? (isWordPast ? 'text-white drop-shadow-md' : 'text-white/40')
+                                               : 'text-inherit' 
+                                         }`}
+                                       >
+                                           {word.text}
+                                       </span>
+                                   );
+                               })}
+                             </p>
+                        </motion.div>
+                    );
+                }
+
+                // Standard Line Sync
+                return (
+                    <motion.div
+                        key={i}
+                        onClick={() => onSeek(line.time)}
+                        initial={false}
+                        animate={{
+                            scale: isActive ? 1.05 : 1,
+                            opacity: isActive ? 1 : isPast ? 0.4 : 0.6,
+                            filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
+                            color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)'
+                        }}
+                        transition={{ duration: 0.4, ease: "easeOut" }}
+                        className="cursor-pointer origin-left"
+                    >
+                         <p className={`text-2xl md:text-3xl font-bold leading-tight ${isActive ? 'drop-shadow-md' : ''}`}>
+                           {line.text}
+                         </p>
+                    </motion.div>
+                );
+            })}
+        </div>
       </div>
     );
-  }
+  };
 
   return (
-    <div 
-      ref={containerRef}
-      className="w-full h-full overflow-y-auto no-scrollbar scroll-smooth py-[50vh] px-6 text-center"
-      onWheel={handleUserInteraction}
-      onTouchMove={handleUserInteraction}
-      onPointerDown={(e) => e.stopPropagation()} 
+    <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 z-20 flex flex-col bg-black/40 backdrop-blur-xl rounded-2xl overflow-hidden"
     >
-      <div className="max-w-3xl mx-auto flex flex-col">
-        {lyrics.map((line, index) => {
-          const isActive = index === activeLineIndex;
-          const isPast = index < activeLineIndex;
-
-          return (
-            <motion.div
-              id={`lyric-line-${index}`}
-              key={index}
-              initial={false}
-              animate={{ 
-                scale: isActive ? 1 : 0.95,
-                opacity: isActive ? 1 : isPast ? 0.3 : 0.3,
-                y: 0,
-                filter: isActive ? 'blur(0px)' : 'blur(1.5px)'
-              }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-              className={`
-                py-4 cursor-pointer transition-colors duration-300
-                ${isActive ? 'text-white' : 'text-white/60 hover:text-white/90'}
-              `}
-              onClick={() => handleLineClick(line.time)}
-            >
-              <div className={`
-                text-2xl md:text-3xl lg:text-4xl font-bold leading-tight tracking-tight
-                ${isActive ? 'bg-gradient-to-r from-white to-white/90 bg-clip-text' : ''}
-              `}>
-                {isWordSynced && line.words ? (
-                  // FIXED: Use standard text flow instead of Flex gap
-                  <span className="inline-block">
-                    {line.words.map((word, wIdx) => {
-                      const isWordActive = currentTime >= word.time;
-                      return (
-                        <React.Fragment key={wIdx}>
-                          <motion.span
-                            animate={{ 
-                              opacity: isWordActive ? 1 : 0.3,
-                            }}
-                            transition={{ duration: 0.1 }}
-                            className="inline-block" // Allows transform but keeps text flow
-                          >
-                            {word.text}
-                          </motion.span>
-                          {/* Add a natural space between words unless it's the last one */}
-                          {wIdx < line.words.length - 1 && " "}
-                        </React.Fragment>
-                      );
-                    })}
-                  </span>
-                ) : (
-                  <span>{line.text}</span>
-                )}
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-    </div>
+      {renderContent()}
+    </motion.div>
   );
 };
 
