@@ -1,11 +1,11 @@
 import React, { memo, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Play, Sparkles, Shuffle, List } from 'lucide-react';
+import { Music, Play, Sparkles, Shuffle, Clock } from 'lucide-react';
 import { Track } from '../types';
 
 interface HomeProps {
   filteredTracks: Track[];
-  playTrack: (id: string) => void;
+  playTrack: (id: string, options?: any) => void;
   activeTab: string;
   isLoading?: boolean;
 }
@@ -116,7 +116,15 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
     if (isLoading || !filteredTracks.length) return [];
     return [...filteredTracks]
       .sort(() => 0.5 - Math.random())
-      .slice(0, 20);
+      .slice(0, 10);
+  }, [filteredTracks, isLoading]);
+
+  const recentlyPlayed = useMemo(() => {
+    if (isLoading || !filteredTracks.length) return [];
+    return [...filteredTracks]
+      .filter(t => t.lastPlayed)
+      .sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
+      .slice(0, 10);
   }, [filteredTracks, isLoading]);
 
   const handleShufflePlay = () => {
@@ -134,7 +142,7 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
       exit={{ opacity: 0 }}
       className="w-full h-full overflow-y-auto pt-safe pb-40 px-6 scrollbar-hide"
     >
-      <div className="max-w-[1400px] mx-auto space-y-12 py-8">
+      <div className="max-w-[1400px] mx-auto space-y-16 py-8">
 
         {/* Expressive Header */}
         <header className="flex flex-col lg:flex-row justify-between lg:items-end gap-8">
@@ -180,29 +188,70 @@ const Home: React.FC<HomeProps> = ({ filteredTracks, playTrack, activeTab, isLoa
           </div>
         </header>
 
-        {/* Content Grid */}
-        <motion.div 
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-8 gap-y-12"
-        >
-          {isLoading ? (
-            Array.from({ length: 10 }).map((_, i) => (
-              <SkeletonCard key={`skel-${i}`} />
-            ))
-          ) : (
-            <AnimatePresence mode="popLayout">
-              {randomMix.map((track) => (
-                <TrackCard 
-                  key={track.id} 
-                  track={track} 
-                  onPlay={(id) => playTrack(id, { customQueue: randomMix.map(t => t.id) })}
-                />
-              ))}
-            </AnimatePresence>
-          )}
-        </motion.div>
+        {/* Recently Played Section */}
+        {recentlyPlayed.length > 0 && (
+            <section className="space-y-6">
+                 <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-3 text-white"
+                >
+                    <Clock className="w-6 h-6 text-primary" />
+                    <h3 className="text-2xl font-bold">Recently Played</h3>
+                </motion.div>
+
+                <motion.div
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-8 gap-y-12"
+                >
+                     <AnimatePresence mode="popLayout">
+                      {recentlyPlayed.map((track) => (
+                        <TrackCard
+                          key={`recent-${track.id}`}
+                          track={track}
+                          onPlay={(id) => playTrack(id, { customQueue: recentlyPlayed.map(t => t.id) })}
+                        />
+                      ))}
+                    </AnimatePresence>
+                </motion.div>
+            </section>
+        )}
+
+        {/* Discovery Grid */}
+        <section className="space-y-6">
+            <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-3 text-white"
+                >
+                    <Sparkles className="w-6 h-6 text-secondary" />
+                    <h3 className="text-2xl font-bold">Just For You</h3>
+            </motion.div>
+             <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-8 gap-y-12"
+            >
+              {isLoading ? (
+                Array.from({ length: 10 }).map((_, i) => (
+                  <SkeletonCard key={`skel-${i}`} />
+                ))
+              ) : (
+                <AnimatePresence mode="popLayout">
+                  {randomMix.map((track) => (
+                    <TrackCard
+                      key={track.id}
+                      track={track}
+                      onPlay={(id) => playTrack(id, { customQueue: randomMix.map(t => t.id) })}
+                    />
+                  ))}
+                </AnimatePresence>
+              )}
+            </motion.div>
+        </section>
 
         {!isLoading && filteredTracks.length === 0 && (
           <motion.div 

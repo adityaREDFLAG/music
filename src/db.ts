@@ -136,6 +136,27 @@ export class MusicDB {
     });
   }
 
+  async toggleFavorite(id: string): Promise<Track | undefined> {
+    if (!this.db) return;
+    const tx = this.db.transaction('tracks', 'readwrite');
+    const store = tx.objectStore('tracks');
+
+    return new Promise((resolve, reject) => {
+        const getReq = store.get(id);
+        getReq.onsuccess = () => {
+            const track = getReq.result as Track;
+            if (track) {
+                track.isFavorite = !track.isFavorite;
+                store.put(track);
+                resolve(track);
+            } else {
+                resolve(undefined);
+            }
+        };
+        getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
   async setSetting(key: string, value: any): Promise<void> {
     if (!this.db) return;
     const tx = this.db.transaction('settings', 'readwrite');

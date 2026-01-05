@@ -12,7 +12,7 @@ import AddToPlaylistModal from './AddToPlaylistModal';
 import { getOrFetchArtistImage } from '../utils/artistImage';
 
 // --- TYPES ---
-type LibraryTab = 'Songs' | 'Albums' | 'Artists' | 'Playlists' | 'Settings';
+type LibraryTab = 'Songs' | 'Favorites' | 'Albums' | 'Artists' | 'Playlists' | 'Settings';
 type SortOption = 'added' | 'title' | 'artist';
 
 interface LibraryProps {
@@ -416,12 +416,17 @@ const Library: React.FC<LibraryProps> = ({
 
   // Derived: Sorted Tracks
   const sortedTracks = useMemo(() => {
-      return [...filteredTracks].sort((a, b) => {
+      let base = [...filteredTracks];
+      if (libraryTab === 'Favorites') {
+          base = base.filter(t => t.isFavorite);
+      }
+
+      return base.sort((a, b) => {
           if (sortOption === 'title') return a.title.localeCompare(b.title);
           if (sortOption === 'artist') return a.artist.localeCompare(b.artist);
           return b.addedAt - a.addedAt; // Default 'added'
       });
-  }, [filteredTracks, sortOption]);
+  }, [filteredTracks, sortOption, libraryTab]);
 
   // Handlers (Memoized for performance)
   const handlePlayTrack = useCallback((id: string) => {
@@ -503,7 +508,7 @@ const Library: React.FC<LibraryProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
-                    {(['Songs', 'Albums', 'Artists', 'Playlists'] as LibraryTab[]).map((tab) => (
+                    {(['Songs', 'Favorites', 'Albums', 'Artists', 'Playlists'] as LibraryTab[]).map((tab) => (
                     <button
                         key={tab}
                         onClick={() => { setLibraryTab(tab); setSelectedArtist(null); setSelectedArtistKey(null); }}
@@ -513,14 +518,14 @@ const Library: React.FC<LibraryProps> = ({
                             : 'bg-surface-variant/30 text-on-surface/70 border-transparent hover:bg-surface-variant hover:text-on-surface'
                         }`}
                     >
-                        {tab}
+                        {tab === 'Favorites' ? <div className="flex items-center gap-1.5"><Heart size={14} fill={libraryTab === 'Favorites' ? 'currentColor' : 'none'} /> Favorites</div> : tab}
                     </button>
                     ))}
                 </div>
             </div>
 
-            {/* Controls Row (Songs View Only) */}
-            {libraryTab === 'Songs' && !selectedArtistKey && (
+            {/* Controls Row (Songs & Favorites View) */}
+            {(libraryTab === 'Songs' || libraryTab === 'Favorites') && !selectedArtistKey && (
                 <div className="flex items-center gap-3 my-4 animate-in slide-in-from-top-2 fade-in duration-300">
                     <button 
                         onClick={handleShuffleAll}
@@ -566,8 +571,8 @@ const Library: React.FC<LibraryProps> = ({
                     Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)
                 ) : (
                     <AnimatePresence mode="wait">
-                        {/* VIEW: SONGS */}
-                        {libraryTab === 'Songs' && (
+                        {/* VIEW: SONGS OR FAVORITES */}
+                        {(libraryTab === 'Songs' || libraryTab === 'Favorites') && (
                             <motion.div 
                                 key="songs-list"
                                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -588,8 +593,8 @@ const Library: React.FC<LibraryProps> = ({
                                     ))
                                 ) : (
                                     <div className="flex flex-col items-center justify-center py-20 text-on-surface/40">
-                                        <Music className="w-16 h-16 mb-4 opacity-50 stroke-1" />
-                                        <p>Your library is empty</p>
+                                        {libraryTab === 'Favorites' ? <Heart className="w-16 h-16 mb-4 opacity-50 stroke-1" /> : <Music className="w-16 h-16 mb-4 opacity-50 stroke-1" />}
+                                        <p>{libraryTab === 'Favorites' ? "No favorite tracks yet" : "Your library is empty"}</p>
                                     </div>
                                 )}
                             </motion.div>
