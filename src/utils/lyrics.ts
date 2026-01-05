@@ -1,14 +1,10 @@
-import { Lyrics, LyricLine, Track, LyricWord } from '../types';
-import { dbService } from '../db';
+import { Track, Lyrics, LyricLine, LyricWord } from '../types';
+import { dbService } from '../db'; // Assuming this exists in your project
 
-// --- Helpers ---
+// --- HELPERS ---
 
-/**
- * Parses time string (mm:ss.xx or mm:ss) into seconds.
- * Handles flexible milliseconds lengths (1, 2 or 3 digits).
- */
+// Parse "mm:ss.xx" into seconds (number)
 const parseTime = (timeStr: string): number | null => {
-  // FIXED: Changed \d{2,3} to \d{1,3} to handle [00:12.5] (1 digit ms)
   const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?$/);
   if (!match) return null;
 
@@ -18,9 +14,7 @@ const parseTime = (timeStr: string): number | null => {
 
   let ms = 0;
   if (msPart) {
-    // FIXED: Robust logic for .5 vs .50 vs .500
-    // If string is "5", it means 500ms (0.5s), not 5ms (0.005s) usually in LRC
-    // But standard calculation is usually: value / (10^length)
+    // Handle .1 vs .01 vs .001 correctly
     const divisor = Math.pow(10, msPart.length);
     ms = parseInt(msPart, 10) / divisor;
   }
@@ -28,19 +22,15 @@ const parseTime = (timeStr: string): number | null => {
   return min * 60 + sec + ms;
 };
 
-/**
- * Aggressively extracts the first valid JSON object from a string.
- * Handles Markdown blocks, preambles, and trailing text.
- */
+// Robust JSON extraction from AI chatter
 const extractJSON = (text: string): any | null => {
   try {
-    // 1. Fast path: Is it already pure JSON?
+    // Attempt direct parse
     return JSON.parse(text);
   } catch {
-    // 2. Regex to find the first '{' and the last '}'
+    // Attempt to find JSON block ```json ... ``` or just { ... }
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
-    
     try {
       return JSON.parse(match[0]);
     } catch {
@@ -49,234 +39,201 @@ const extractJSON = (text: string): any | null => {
   }
 };
 
-// --- Core Logic ---
+// --- PARSER ---
 
-/**
- * Robust LRC Parser.
- * Handles:
- * - Standard: [mm:ss.xx] Line content
- * - Enhanced A: [mm:ss.xx] <mm:ss.xx> Word <mm:ss.xx> Word
- * - Enhanced B: [mm:ss.xx] Word <mm:ss.xx> Word
- */
-export const parseLrc = (lrc: string): LyricLine[] => {
+export const parseLrc = (lrc: string): Lyrics => {
   const lines: LyricLine[] = [];
-  // FIXED: Relaxed regex for ms part to (\.\d{1,3})?
   const lineRegex = /^\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\](.*)$/;
-  const wordTimeRegex = /(<\d{1,2}:\d{2}\.\d{1,3}>)/; 
+  const wordTagRegex = /(<\d{1,2}:\d{2}\.\d{1,3}>)/;
 
-  lrc.split(/\r?\n/).forEach(lineStr => {
-    const trimmed = lineStr.trim();
+  lrc.split(/\r?\n/).forEach((rawLine) => {
+    const trimmed = rawLine.trim();
     if (!trimmed) return;
 
+    // 1. Parse Line Time [mm:ss.xx]
     const match = trimmed.match(lineRegex);
-    if (!match) return; // Skip non-lyric lines (metadata)
+    if (!match) return;
 
-    const lineStartTime = parseTime(match[1]);
-    if (lineStartTime === null) return;
+    const lineTime = parseTime(match[1]);
+    if (lineTime === null) return;
 
-    const rawContent = match[2].trim();
-
-    // Strategy: Split by the timestamp regex.
-    // Since regex has capturing group (), split will include the separators in the result array.
-    // "Word <00:01> Word2" -> ["Word ", "<00:01>", " Word2"]
-    const parts = rawContent.split(wordTimeRegex);
+    const content = match[2].trim();
     
+    // 2. Parse Word Tags <mm:ss.xx>
+    // Split by the tag regex to get alternating [text, tag, text, tag...]
+    const parts = content.split(wordTagRegex);
     const words: LyricWord[] = [];
-    let currentWordTime = lineStartTime;
+    let currentTime = lineTime;
 
-    parts.forEach(part => {
-      // Check if this part is a timestamp tag
-      if (wordTimeRegex.test(part)) {
-        // Remove < and > and parse
+    parts.forEach((part) => {
+      if (wordTagRegex.test(part)) {
+        // It's a time tag, update current time pointer
         const t = parseTime(part.slice(1, -1));
-        if (t !== null) currentWordTime = t;
+        if (t !== null) currentTime = t;
       } else {
         // It's text
         const text = part.trim();
         if (text) {
-          words.push({ time: currentWordTime, text });
+          words.push({ time: currentTime, text });
         }
       }
     });
 
-    // If we detected word-level sync, add it.
+    // 3. Construct Line
     if (words.length > 0) {
-      lines.push({ 
-        time: lineStartTime, 
-        text: words.map(w => w.text).join(' '), 
-        words 
+      lines.push({
+        time: lineTime,
+        text: words.map((w) => w.text).join(' '),
+        words,
       });
-    } else {
-      // Standard line
-      if (rawContent) {
-        lines.push({ time: lineStartTime, text: rawContent });
-      }
+    } else if (content) {
+      lines.push({
+        time: lineTime,
+        text: content,
+      });
     }
   });
 
-  // FIXED: Sort lines by time to ensure binary search or findIndex works correctly
-  return lines.sort((a, b) => a.time - b.time);
+  const sortedLines = lines.sort((a, b) => a.time - b.time);
+  const isWordSynced = sortedLines.some((l) => l.words && l.words.length > 1);
+
+  return {
+    lines: sortedLines,
+    synced: true,
+    isWordSynced,
+    error: false,
+  };
 };
 
-/**
- * Interfaces with Gemini to upgrade lyrics to word-level sync.
- */
+// --- GEMINI ENHANCER ---
+
 const getGeminiLyrics = async (
   track: Track,
   apiKey: string,
-  context: { synced?: string, plain?: string }
+  context: { synced?: string; plain?: string }
 ): Promise<Lyrics | null> => {
-  const { title, artist } = track;
-  let promptParts: string[] = [];
+  const prompt = `
+    Task: Generate precise word-level synced lyrics (Karaoke style).
+    Song: "${track.title}" by "${track.artist}"
+    Duration: ${track.duration}s
+    
+    Instructions:
+    1. Output strictly valid JSON.
+    2. Do NOT change the lyrics text provided below.
+    3. Estimate natural timing for each word based on the song structure.
+    4. Format: { "lines": [ { "time": number (seconds), "text": string, "words": [ { "time": number, "text": string } ] } ] }
 
-  // Construct Prompt based on available data
-  if (context.synced) {
-    promptParts = [
-      `Task: Convert line-synced LRC to word-synced JSON.`,
-      `Song: "${title}" by "${artist}".`,
-      `Instructions:`,
-      `1. Keep the existing line timestamps EXACTLY as provided.`,
-      `2. Interpolate timestamps for individual words based on natural rhythm.`,
-      `3. Do NOT change any words or punctuation.`,
-      `Input LRC:`,
-      context.synced
-    ];
-  } else {
-    promptParts = [
-      `Task: Generate word-synced lyrics JSON.`,
-      `Song: "${title}" by "${artist}".`,
-      `Instructions: Estimate timestamps for every word.`,
-      `Lyrics:`,
-      context.plain || ""
-    ];
-  }
-
-  // Common Schema Instruction
-  promptParts.push(`
-    Output Format: return ONLY valid JSON. Structure:
-    {
-      "lines": [
-        {
-          "time": number (seconds),
-          "text": string,
-          "words": [{ "time": number (seconds), "text": string }]
-        }
-      ]
-    }
-  `);
+    Input Data:
+    ${context.synced ? `Reference LRC:\n${context.synced}` : `Lyrics Text:\n${context.plain}`}
+  `;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: promptParts.join('\n') }] }],
-        generationConfig: {
-          temperature: 0.2, // Low temp for stability
-          responseMimeType: "application/json"
-        }
-      })
-    });
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+          },
+        }),
+      }
+    );
 
-    if (!response.ok) throw new Error(`Gemini API: ${response.statusText}`);
-
-    const data = await response.json();
+    if (!res.ok) throw new Error(`Gemini API Error: ${res.status}`);
+    const data = await res.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!rawText) return null;
 
     const parsed = extractJSON(rawText);
+    if (!parsed?.lines || !Array.isArray(parsed.lines)) return null;
 
-    if (parsed && Array.isArray(parsed.lines) && parsed.lines.length > 0) {
-       // Sanity Check: If we had original lines, did we lose too many?
-       // (Optional: Compare lengths if context.synced existed)
-       return {
-           lines: parsed.lines,
-           synced: true,
-           isWordSynced: true,
-           error: false
-       };
-    }
+    return {
+      lines: parsed.lines,
+      synced: true,
+      isWordSynced: true,
+      error: false,
+    };
   } catch (e) {
-    console.warn("Gemini sync failed:", e);
+    console.warn('Gemini Sync Generation failed:', e);
+    return null;
   }
-  return null;
 };
 
+// --- MAIN FETCH STRATEGY ---
+
 export const fetchLyrics = async (track: Track): Promise<Lyrics> => {
-  const { title, artist } = track;
+  // 1. Check DB / Settings
   const wordSyncEnabled = await dbService.getSetting<boolean>('wordSyncEnabled');
   const geminiApiKey = await dbService.getSetting<string>('geminiApiKey');
 
-  // 1. Check existing (DB) lyrics
-  // If we already have word-sync (and want it), or have line-sync (and don't want word-sync), return early.
+  // 2. Return Cached if valid
   if (track.lyrics && !track.lyrics.error) {
-     const hasWordSync = track.lyrics.isWordSynced;
-     if (hasWordSync) return track.lyrics; 
-     if (track.lyrics.synced && !wordSyncEnabled) return track.lyrics;
+    if (track.lyrics.isWordSynced) return track.lyrics;
+    // If we have synced lines but user doesn't want word-sync, return existing
+    if (track.lyrics.synced && !wordSyncEnabled) return track.lyrics;
   }
 
-  // Container for whatever we find
-  let bestAvailable: Lyrics = { lines: [], synced: false, error: true };
-  let rawForEnhancement: { synced?: string, plain?: string } | null = null;
+  let bestResult: Lyrics = { lines: [], synced: false, error: true };
+  let rawData: { synced?: string; plain?: string } | null = null;
 
-  // 2. Try Lrclib (High Quality, often Synced)
+  // 3. Strategy A: LRCLIB (Best Free Source)
   try {
-    const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
-    const res = await fetch(url);
+    const url = new URL('https://lrclib.net/api/get');
+    url.searchParams.append('artist_name', track.artist);
+    url.searchParams.append('track_name', track.title);
+    url.searchParams.append('album_name', track.album || '');
+    url.searchParams.append('duration', track.duration.toString());
+
+    const res = await fetch(url.toString());
     if (res.ok) {
       const data = await res.json();
-      
       if (data.syncedLyrics) {
-        const lines = parseLrc(data.syncedLyrics);
-        // Check if Lrclib actually gave us Enhanced LRC directly (rare but possible)
-        const isWordSynced = lines.some(l => l.words && l.words.length > 0);
-        
-        bestAvailable = { 
-          lines, 
-          synced: true, 
-          isWordSynced, 
-          plain: data.plainLyrics,
-          error: false 
-        };
-        rawForEnhancement = { synced: data.syncedLyrics, plain: data.plainLyrics };
+        const parsed = parseLrc(data.syncedLyrics);
+        bestResult = { ...parsed, plain: data.plainLyrics };
+        rawData = { synced: data.syncedLyrics, plain: data.plainLyrics };
       } else if (data.plainLyrics) {
-        // We only found plain text
-        bestAvailable = { ...bestAvailable, plain: data.plainLyrics, error: false };
-        rawForEnhancement = { plain: data.plainLyrics };
+        bestResult = { lines: [], synced: false, plain: data.plainLyrics, error: false };
+        rawData = { plain: data.plainLyrics };
       }
     }
-  } catch (e) { console.warn("Lrclib error", e); }
-
-  // 3. Fallback to Popcat (Good for Plain Text)
-  // Only search if we found nothing, or if we want to sync but only found plain text so far
-  if (bestAvailable.error || (!bestAvailable.synced && !rawForEnhancement?.plain)) {
-     try {
-       const url = `https://api.popcat.xyz/v2/lyrics?song=${encodeURIComponent(title + " " + artist)}`;
-       const res = await fetch(url);
-       const data = await res.json();
-       if (data.lyrics) {
-         bestAvailable = { lines: [], synced: false, plain: data.lyrics, error: false };
-         rawForEnhancement = { plain: data.lyrics };
-       }
-     } catch (e) { console.warn("Popcat error", e); }
+  } catch (e) {
+    console.warn('LRCLIB fetch failed', e);
   }
 
-  // 4. AI Enhancement (Gemini)
-  // Trigger if: User wants word sync + We have an API key + We have SOME lyrics + Result isn't already word synced
-  if (wordSyncEnabled && geminiApiKey && rawForEnhancement && !bestAvailable.isWordSynced) {
-    const enhanced = await getGeminiLyrics(track, geminiApiKey, rawForEnhancement);
-    if (enhanced) {
-      const newLyrics = { ...enhanced, plain: bestAvailable.plain };
-      await dbService.saveTrack({ ...track, lyrics: newLyrics });
-      return newLyrics;
+  // 4. Strategy B: Popcat (Fallback for plain text)
+  if (bestResult.error && !bestResult.plain) {
+    try {
+      const res = await fetch(`https://api.popcat.xyz/v2/lyrics?song=${encodeURIComponent(`${track.title} ${track.artist}`)}`);
+      const data = await res.json();
+      if (data.lyrics) {
+        bestResult = { lines: [], synced: false, plain: data.lyrics, error: false };
+        rawData = { plain: data.lyrics };
+      }
+    } catch (e) {
+      console.warn('Popcat fetch failed', e);
     }
   }
 
-  // 5. Final Save & Return
-  if (!bestAvailable.error) {
-    await dbService.saveTrack({ ...track, lyrics: bestAvailable });
-    return bestAvailable;
+  // 5. Strategy C: Gemini Enhancement (The "Magic" Step)
+  // If we have content, but no word-sync, and the user wants it...
+  if (wordSyncEnabled && geminiApiKey && rawData && !bestResult.isWordSynced) {
+    const enhanced = await getGeminiLyrics(track, geminiApiKey, rawData);
+    if (enhanced) {
+      const finalLyrics = { ...enhanced, plain: bestResult.plain };
+      await dbService.saveTrack({ ...track, lyrics: finalLyrics });
+      return finalLyrics;
+    }
+  }
+
+  // 6. Final Save & Return
+  if (!bestResult.error) {
+    await dbService.saveTrack({ ...track, lyrics: bestResult });
+    return bestResult;
   }
 
   return { lines: [], synced: false, error: true };
