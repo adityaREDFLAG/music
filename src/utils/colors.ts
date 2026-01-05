@@ -1,5 +1,3 @@
-// Color extraction utility using quantization
-
 export interface ThemePalette {
   primary: string;
   secondary: string;
@@ -7,14 +5,16 @@ export interface ThemePalette {
   background: string;
 }
 
-// Helper: Convert RGB to HSL
+// --- Helpers ---
+
+// RGB to HSL (0-1 range)
 function rgbToHsl(r: number, g: number, b: number) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   let h = 0, s, l = (max + min) / 2;
 
   if (max === min) {
-    h = s = 0; // achromatic
+    h = s = 0; 
   } else {
     const d = max - min;
     s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
@@ -25,43 +25,42 @@ function rgbToHsl(r: number, g: number, b: number) {
     }
     h /= 6;
   }
-  return [h, s, l];
+  return { h, s, l };
 }
 
-// Helper: Convert HSL to RGB
+// HSL to RGB (Returns 0-255)
 function hslToRgb(h: number, s: number, l: number) {
   let r, g, b;
-
   if (s === 0) {
-    r = g = b = l; // achromatic
+    r = g = b = l; 
   } else {
     const hue2rgb = (p: number, q: number, t: number) => {
       if (t < 0) t += 1;
       if (t > 1) t -= 1;
-      if (t < 1 / 6) return p + (q - p) * 6 * t;
-      if (t < 1 / 2) return q;
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
       return p;
     };
-
     const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
     const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1 / 3);
+    r = hue2rgb(p, q, h + 1/3);
     g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1 / 3);
+    b = hue2rgb(p, q, h - 1/3);
   }
-
-  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
 }
 
-// Helper: Calculate luminance
-function getLuminance(r: number, g: number, b: number) {
-  const a = [r, g, b].map((v) => {
-    v /= 255;
-    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-  });
-  return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+// Check color distance (Euclidean in RGB is fast/decent enough for this)
+function colorDistance(c1: {r:number, g:number, b:number}, c2: {r:number, g:number, b:number}) {
+  return Math.sqrt(
+    Math.pow(c1.r - c2.r, 2) + 
+    Math.pow(c1.g - c2.g, 2) + 
+    Math.pow(c1.b - c2.b, 2)
+  );
 }
+
+// --- Main Logic ---
 
 export const extractDominantColor = async (imageUrl: string): Promise<ThemePalette | null> => {
   return new Promise((resolve) => {
@@ -71,121 +70,101 @@ export const extractDominantColor = async (imageUrl: string): Promise<ThemePalet
 
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(null);
-        return;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) { resolve(null); return; }
+
+      // Keep small for performance, but 128 is a good balance
+      canvas.width = 128;
+      canvas.height = 128;
+      ctx.drawImage(img, 0, 0, 128, 128);
+
+      const imageData = ctx.getImageData(0, 0, 128, 128).data;
+      
+      // We will store colors as "Quantized Buckets"
+      // Instead of simple averaging, we store the "best" representative of the bucket
+      const colorCounts: Record<string, { r:number, g:number, b:number, count:number, s:number, l:number }> = {};
+      
+      const quality = 10; // Check every 10th pixel
+      
+      for (let i = 0; i < imageData.length; i += 4 * quality) {
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        const a = imageData[i + 3];
+
+        if (a < 128) continue;
+
+        const { h, s, l } = rgbToHsl(r, g, b);
+
+        // IGNORE boring colors for the palette generation
+        // Too white (>0.95), too black (<0.05), or too gray (s < 0.05)
+        if (l > 0.95 || l < 0.05) continue; 
+
+        // Quantize: Round RGB values to nearest 10 to group similar colors
+        // This prevents "muddying" by grouping tight clusters
+        const qR = Math.round(r / 10) * 10;
+        const qG = Math.round(g / 10) * 10;
+        const qB = Math.round(b / 10) * 10;
+        const key = `${qR},${qG},${qB}`;
+
+        if (!colorCounts[key]) {
+          colorCounts[key] = { r: qR, g: qG, b: qB, count: 0, s, l };
+        }
+        
+        colorCounts[key].count++;
       }
 
-      // Resize for speed
-      canvas.width = 100;
-      canvas.height = 100;
-      ctx.drawImage(img, 0, 0, 100, 100);
+      // Convert to array
+      let colors = Object.values(colorCounts);
 
-      const imageData = ctx.getImageData(0, 0, 100, 100).data;
-      const pixels: {r: number, g: number, b: number}[] = [];
-
-      for (let i = 0; i < imageData.length; i += 4 * 5) { // Sample more frequently (every 5th)
-          const r = imageData[i];
-          const g = imageData[i+1];
-          const b = imageData[i+2];
-          const a = imageData[i+3];
-
-          if (a < 128) continue;
-
-          // Skip very dark or very white pixels to avoid boring colors
-          const hsl = rgbToHsl(r, g, b);
-          // Keep a bit more range than before, but still avoid extremes for palette picking
-          if (hsl[2] < 0.05 || hsl[2] > 0.95) continue;
-
-          pixels.push({r, g, b});
-      }
-
-      if (pixels.length === 0) {
-        resolve(null);
-        return;
-      }
-
-      // Simple Quantization
-      const buckets: Record<string, {r: number, g: number, b: number, count: number}> = {};
-
-      pixels.forEach(p => {
-          const key = `${Math.floor(p.r/24)},${Math.floor(p.g/24)},${Math.floor(p.b/24)}`; // Smaller buckets for more precision
-          if (!buckets[key]) buckets[key] = {r:0, g:0, b:0, count:0};
-          buckets[key].r += p.r;
-          buckets[key].g += p.g;
-          buckets[key].b += p.b;
-          buckets[key].count++;
+      // SCORING ALGORITHM
+      // We don't just want the most frequent. We want the most "Vibrant Dominant".
+      // Score = Count * (Saturation + SaturationBonus)
+      colors.sort((a, b) => {
+        const scoreA = a.count * (a.s * 2 + 0.5); // Boost saturation weight
+        const scoreB = b.count * (b.s * 2 + 0.5);
+        return scoreB - scoreA;
       });
 
-      const sortedBuckets = Object.values(buckets).map(b => ({
-          r: Math.round(b.r / b.count),
-          g: Math.round(b.g / b.count),
-          b: Math.round(b.b / b.count),
-          count: b.count
-      })).sort((a, b) => b.count - a.count);
+      if (colors.length === 0) { resolve(null); return; }
 
-      // Extract Palette Candidates
-      const primaryCandidate = sortedBuckets[0] || {r:255, g:255, b:255};
-      
-      // Helper to ensure color is light enough for dark background
-      const ensureLightness = (c: {r: number, g: number, b: number}, minL: number): {r: number, g: number, b: number} => {
-        const [h, s, l] = rgbToHsl(c.r, c.g, c.b);
-        if (l < minL) {
-          const [nR, nG, nB] = hslToRgb(h, s, Math.max(l, minL));
-          return { r: nR, g: nG, b: nB };
-        }
-        return c;
-      };
+      // 1. Pick Primary (Best Score)
+      const primary = colors[0];
 
-      // Helper to ensure color is dark enough for background
-      const ensureDarkness = (c: {r: number, g: number, b: number}, maxL: number): {r: number, g: number, b: number} => {
-         const [h, s, l] = rgbToHsl(c.r, c.g, c.b);
-         if (l > maxL) {
-           const [nR, nG, nB] = hslToRgb(h, s, Math.min(l, maxL));
-           return { r: nR, g: nG, b: nB };
-         }
-         return c;
-      };
-      
-      // 1. Background: Based on primary but very dark
-      // We want background to be colored but dark (e.g. L < 0.1)
-      const bgBase = sortedBuckets[0] || {r:10, g:10, b:10}; // Use most dominant for BG base
-      const backgroundRGB = ensureDarkness(bgBase, 0.2); // Relaxed to 20% to allow richer colors (like brown)
+      // 2. Pick Secondary (Distinct from Primary)
+      // Look for a color that is at least a certain "distance" away
+      let secondary = colors.find(c => colorDistance(c, primary) > 100) || colors[1] || primary;
 
-      // 2. Primary: Main accent color. Should be visible on background.
-      // Use the most dominant color, but ensure it's light enough (e.g. L > 0.5)
-      let primaryRGB = ensureLightness(primaryCandidate, 0.55);
+      // 3. Pick Background
+      // STRATEGY: Create a dark background TINTED with the primary hue.
+      // This looks much better than trying to find a black pixel in the image.
+      const primaryHsl = rgbToHsl(primary.r, primary.g, primary.b);
+      // Very dark (L=0.07), slight saturation (S=0.2) of the primary hue
+      const bgRgb = hslToRgb(primaryHsl.h, 0.2, 0.07); 
 
-      // 3. Secondary: Distinct from primary
-      let secondaryCandidate = sortedBuckets.find(c => {
-         const diff = Math.abs(c.r - primaryCandidate.r) + Math.abs(c.g - primaryCandidate.g) + Math.abs(c.b - primaryCandidate.b);
-         return diff > 80;
-      }) || sortedBuckets[1] || primaryCandidate;
-      let secondaryRGB = ensureLightness(secondaryCandidate, 0.5);
+      // 4. Muted
+      // Just desaturate the primary or secondary
+      const mutedRgb = hslToRgb(primaryHsl.h, Math.max(0, primaryHsl.s - 0.4), 0.6);
 
-      // 4. Muted: Another distinct or less saturated color
-      let mutedCandidate = sortedBuckets.find(c => {
-         const diffP = Math.abs(c.r - primaryCandidate.r) + Math.abs(c.g - primaryCandidate.g) + Math.abs(c.b - primaryCandidate.b);
-         const diffS = Math.abs(c.r - secondaryCandidate.r) + Math.abs(c.g - secondaryCandidate.g) + Math.abs(c.b - secondaryCandidate.b);
-         return diffP > 50 && diffS > 50;
-      }) || sortedBuckets[2] || secondaryCandidate;
-      // Muted can be slightly darker than primary/secondary but still needs to be visible
-      let mutedRGB = ensureLightness(mutedCandidate, 0.4);
+      // 5. Final Primary Adjusment
+      // Ensure primary pops against the dark background. 
+      // If primary is too dark (navy blue), lighten it up.
+      let finalPrimary = primary;
+      if (primary.l < 0.4) {
+         const adj = hslToRgb(primaryHsl.h, primaryHsl.s, 0.6);
+         finalPrimary = { ...finalPrimary, ...adj };
+      }
 
-      // Formatting
       const toStr = (c: {r:number, g:number, b:number}) => `rgb(${c.r}, ${c.g}, ${c.b})`;
 
       resolve({
-          primary: toStr(primaryRGB),
-          secondary: toStr(secondaryRGB),
-          muted: toStr(mutedRGB),
-          background: toStr(backgroundRGB)
+        primary: toStr(finalPrimary),
+        secondary: toStr(secondary),
+        muted: toStr(mutedRgb),
+        background: toStr(bgRgb)
       });
     };
 
-    img.onerror = () => {
-      resolve(null);
-    };
+    img.onerror = () => resolve(null);
   });
 };
