@@ -5,10 +5,11 @@ import { dbService } from '../db';
 
 /**
  * Parses time string (mm:ss.xx or mm:ss) into seconds.
- * Handles flexible milliseconds lengths (2 or 3 digits).
+ * Handles flexible milliseconds lengths (1, 2 or 3 digits).
  */
 const parseTime = (timeStr: string): number | null => {
-  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})(?:\.(\d{2,3}))?$/);
+  // FIXED: Changed \d{2,3} to \d{1,3} to handle [00:12.5] (1 digit ms)
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?$/);
   if (!match) return null;
 
   const min = parseInt(match[1], 10);
@@ -17,8 +18,10 @@ const parseTime = (timeStr: string): number | null => {
 
   let ms = 0;
   if (msPart) {
-    // If 2 digits (.50), divisor is 100. If 3 digits (.500), divisor is 1000.
-    const divisor = msPart.length === 3 ? 1000 : 100;
+    // FIXED: Robust logic for .5 vs .50 vs .500
+    // If string is "5", it means 500ms (0.5s), not 5ms (0.005s) usually in LRC
+    // But standard calculation is usually: value / (10^length)
+    const divisor = Math.pow(10, msPart.length);
     ms = parseInt(msPart, 10) / divisor;
   }
 
@@ -57,9 +60,9 @@ const extractJSON = (text: string): any | null => {
  */
 export const parseLrc = (lrc: string): LyricLine[] => {
   const lines: LyricLine[] = [];
-  const lineRegex = /^\[(\d{1,2}:\d{2}(?:\.\d{2,3})?)\](.*)$/;
-  // Capture timestamp tag including brackets <...>
-  const wordTimeRegex = /(<\d{1,2}:\d{2}\.\d{2,3}>)/; 
+  // FIXED: Relaxed regex for ms part to (\.\d{1,3})?
+  const lineRegex = /^\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\](.*)$/;
+  const wordTimeRegex = /(<\d{1,2}:\d{2}\.\d{1,3}>)/; 
 
   lrc.split(/\r?\n/).forEach(lineStr => {
     const trimmed = lineStr.trim();
@@ -111,7 +114,8 @@ export const parseLrc = (lrc: string): LyricLine[] => {
     }
   });
 
-  return lines;
+  // FIXED: Sort lines by time to ensure binary search or findIndex works correctly
+  return lines.sort((a, b) => a.time - b.time);
 };
 
 /**
@@ -184,14 +188,14 @@ const getGeminiLyrics = async (
     const parsed = extractJSON(rawText);
 
     if (parsed && Array.isArray(parsed.lines) && parsed.lines.length > 0) {
-        // Sanity Check: If we had original lines, did we lose too many?
-        // (Optional: Compare lengths if context.synced existed)
-        return {
-            lines: parsed.lines,
-            synced: true,
-            isWordSynced: true,
-            error: false
-        };
+       // Sanity Check: If we had original lines, did we lose too many?
+       // (Optional: Compare lengths if context.synced existed)
+       return {
+           lines: parsed.lines,
+           synced: true,
+           isWordSynced: true,
+           error: false
+       };
     }
   } catch (e) {
     console.warn("Gemini sync failed:", e);
