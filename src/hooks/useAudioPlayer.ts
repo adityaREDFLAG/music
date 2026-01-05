@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { dbService } from '../db';
 import { Track, PlayerState, RepeatMode } from '../types';
-import { resumeAudioContext } from './useAudioAnalyzer';
+import { resumeAudioContext, getAudioContext } from './useAudioAnalyzer';
 import { getSmartNextTrack } from '../utils/automix';
 
 export const useAudioPlayer = (
@@ -39,6 +39,8 @@ export const useAudioPlayer = (
   const isScrubbingRef = useRef(false);
   const wasPlayingBeforeScrubRef = useRef(false);
   const pendingSeekRef = useRef<number | null>(null);
+  // NEW: Store the calculated next track ID to ensure preloader and nextTrack() agree
+  const upcomingTrackIdRef = useRef<string | null>(null);
 
   // ✅ NEW: Locks UI updates during a click-to-seek action
   const isManualSeekingRef = useRef(false);
@@ -56,13 +58,24 @@ export const useAudioPlayer = (
     return newArray;
   };
 
+  // Helper to safely resume context only if needed
+  const safeResumeContext = async () => {
+     // Check if context is suspended before trying to resume to avoid unnecessary operations
+     const ctx = getAudioContext();
+     if (ctx && ctx.state === 'suspended') {
+         await resumeAudioContext().catch(() => {});
+     }
+  };
+
   // --- 🔒 iOS GLOBAL UNLOCK FIX ---
   useEffect(() => {
     if (!audioElement) return;
 
     const handleUnlock = async () => {
-      await resumeAudioContext();
+      await safeResumeContext();
       try {
+        // iOS requires a direct call to play() within the event handler to unlock audio.
+        // We play and immediately pause.
         await audioElement.play();
         audioElement.pause();
         audioElement.currentTime = 0;
@@ -298,6 +311,8 @@ export const useAudioPlayer = (
                 console.error("Sync play failed", err);
                 setPlayer(p => ({ ...p, isPlaying: false }));
             }
+            // IMPORTANT: Clear the upcoming track ref as we are now playing it
+            upcomingTrackIdRef.current = null;
             return; // Exit early!
         }
 
@@ -305,7 +320,7 @@ export const useAudioPlayer = (
         let nextBlob = await dbService.getAudioBlob(trackId) || undefined;
 
         if (nextBlob) {
-             resumeAudioContext().catch(console.error);
+             safeResumeContext().catch(console.error);
 
              const isHidden = document.visibilityState === 'hidden';
              const shouldCrossfade = (player.crossfadeEnabled || player.automixEnabled) && !isHidden && currentBlob && crossfadeAudioElement;
@@ -340,7 +355,7 @@ export const useAudioPlayer = (
     if (!audioElement) return;
 
     if (audioElement.paused) {
-        resumeAudioContext().catch(console.error);
+        safeResumeContext().catch(console.error);
         try {
           await audioElement.play();
           setPlayer(p => ({ ...p, isPlaying: true }));
@@ -355,42 +370,49 @@ export const useAudioPlayer = (
     }
   }, [audioElement, crossfadeAudioElement]);
 
+  // Helper to determine the next track ID (deterministic)
+  const calculateNextTrackId = useCallback((currentId: string | null, queue: string[], repeat: RepeatMode, automixEnabled: boolean, automixMode: string): string | null => {
+      if (automixEnabled && (automixMode === 'smart' || automixMode === 'shuffle')) {
+          const currentIdx = queue.indexOf(currentId || '');
+          const restOfQueueIds = queue.slice(currentIdx + 1);
+
+          if (restOfQueueIds.length === 0 && repeat === RepeatMode.ALL) {
+               restOfQueueIds.push(...queue);
+          }
+
+          if (restOfQueueIds.length > 0) {
+              const candidates = restOfQueueIds.map(id => libraryTracks[id]).filter(Boolean);
+              const currentTrack = currentId ? libraryTracks[currentId] : null;
+
+              if (currentTrack) {
+                  const bestNext = getSmartNextTrack(currentTrack, candidates);
+                  if (bestNext) return bestNext.id;
+              }
+          }
+      }
+
+      // Standard logic
+      const currentIndex = queue.indexOf(currentId || '');
+      if (currentIndex >= 0 && currentIndex < queue.length - 1) {
+          return queue[currentIndex + 1];
+      } else if (repeat === RepeatMode.ALL && queue.length > 0) {
+          return queue[0];
+      }
+      return null;
+  }, [libraryTracks]);
+
   const nextTrack = useCallback(() => {
-     if (player.automixEnabled && (player.automixMode === 'smart' || player.automixMode === 'shuffle')) {
-         const currentIdx = player.queue.indexOf(player.currentTrackId || '');
-         const restOfQueueIds = player.queue.slice(currentIdx + 1);
+     let nextId: string | null = upcomingTrackIdRef.current;
 
-         if (restOfQueueIds.length === 0 && player.repeat === RepeatMode.ALL) {
-             restOfQueueIds.push(...player.queue);
-         }
-
-         if (restOfQueueIds.length > 0) {
-             const candidates = restOfQueueIds.map(id => libraryTracks[id]).filter(Boolean);
-             const currentTrack = player.currentTrackId ? libraryTracks[player.currentTrackId] : null;
-
-             if (currentTrack) {
-                 const bestNext = getSmartNextTrack(currentTrack, candidates);
-                 if (bestNext) {
-                     playTrack(bestNext.id, { immediate: true, fromQueue: true });
-                     return;
-                 }
-             }
-         }
-     }
-
-     const currentIndex = player.queue.indexOf(player.currentTrackId || '');
-     let nextId: string | null = null;
-
-     if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
-         nextId = player.queue[currentIndex + 1];
-     } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
-         nextId = player.queue[0];
+     // Fallback if not calculated yet (shouldn't happen if useEffect works)
+     if (!nextId) {
+        nextId = calculateNextTrackId(player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode);
      }
 
      if (nextId) {
          playTrack(nextId, { immediate: true, fromQueue: true });
      }
-  }, [player, playTrack, libraryTracks]);
+  }, [player, playTrack, calculateNextTrackId]);
 
   const prevTrack = useCallback(() => {
       if (audioElement && audioElement.currentTime > 3) {
@@ -478,7 +500,7 @@ export const useAudioPlayer = (
 
       // 3. iOS/Mobile Fix: If paused, briefly wake context (optional but helpful)
       if (audioElement.paused && !wasPlayingBeforeScrubRef.current) {
-          resumeAudioContext().catch(() => {});
+          safeResumeContext().catch(() => {});
       }
 
       // 4. THE FIX: Lock updates, then set time
@@ -581,11 +603,14 @@ export const useAudioPlayer = (
               }
 
               const timeLeft = audioElement.duration - audioElement.currentTime;
+
+              // Slightly increased tolerance for crossfade check to account for background throttling
+              // But keep > 0 to prevent double trigger at end
               if ((player.crossfadeEnabled || player.automixEnabled) &&
                   !isTransitioningRef.current &&
                   !isAutoTriggeredRef.current &&
                   timeLeft <= player.crossfadeDuration &&
-                  timeLeft > 0) {
+                  timeLeft > 0.1) {
 
                    isAutoTriggeredRef.current = true;
                    nextTrack();
@@ -651,7 +676,7 @@ export const useAudioPlayer = (
           // just calling play() here works if the interruption was temporary
           if (player.isPlaying && audioElement.paused) {
                // Try to resume
-               resumeAudioContext().then(() => {
+               safeResumeContext().then(() => {
                    audioElement.play().catch(console.error);
                });
           }
@@ -690,16 +715,12 @@ export const useAudioPlayer = (
       };
   }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration, player.isPlaying]);
 
-  // --- PRELOAD NEXT TRACK ---
+  // --- PRELOAD NEXT TRACK (SMART AUTOMIX AWARE) ---
   useEffect(() => {
-    const currentIndex = player.queue.indexOf(player.currentTrackId || '');
-    let nextId: string | null = null;
+    // Determine what the next track WILL be, exactly matching nextTrack() logic
+    const nextId = calculateNextTrackId(player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode);
 
-    if (currentIndex >= 0 && currentIndex < player.queue.length - 1) {
-        nextId = player.queue[currentIndex + 1];
-    } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
-        nextId = player.queue[0];
-    }
+    upcomingTrackIdRef.current = nextId;
 
     // Cleanup old URL if it changed
     if (nextTrackUrlRef.current && nextTrackUrlRef.current.id !== nextId) {
@@ -718,28 +739,28 @@ export const useAudioPlayer = (
             }
         });
     }
-  }, [player.currentTrackId, player.queue, player.repeat]);
+  }, [player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode, calculateNextTrackId]);
 
   // ✅ FIX #1: Media Session
   useEffect(() => {
       if ('mediaSession' in navigator) {
           try {
               navigator.mediaSession.setActionHandler('play', () => {
-                  resumeAudioContext().catch(console.error);
+                  safeResumeContext().catch(console.error);
                   togglePlay();
               });
               navigator.mediaSession.setActionHandler('pause', () => togglePlay());
               navigator.mediaSession.setActionHandler('previoustrack', () => {
-                  resumeAudioContext().catch(console.error);
+                  safeResumeContext().catch(console.error);
                   prevTrack();
               });
               navigator.mediaSession.setActionHandler('nexttrack', () => {
-                  resumeAudioContext().catch(console.error);
+                  safeResumeContext().catch(console.error);
                   nextTrack();
               });
               navigator.mediaSession.setActionHandler('seekto', (d) => { 
                   if (d.seekTime !== undefined) {
-                      resumeAudioContext().catch(console.error);
+                      safeResumeContext().catch(console.error);
                       handleSeek(d.seekTime); 
                   }
               });

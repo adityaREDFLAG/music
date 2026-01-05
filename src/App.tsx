@@ -329,6 +329,8 @@ function MusicApp() {
         crossOrigin="anonymous"
         preload="auto"
         controlsList="nodownload"
+        x-webkit-airplay="allow"
+        data-not-lazy="true"
         onError={(e) => console.error("Audio tag error:", e)}
         onPlayingCapture={() => {
           // Resume audio context on user interaction
