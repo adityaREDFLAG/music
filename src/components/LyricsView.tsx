@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchLyrics } from '../utils/lyrics';
 import { Track, Lyrics } from '../types';
-import { Loader2, Music2, Sparkles } from 'lucide-react';
+import { Loader2, Music2, Sparkles, Mic2 } from 'lucide-react';
 
 interface LyricsViewProps {
   track: Track;
@@ -39,7 +39,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
       const data = await fetchLyrics(track);
       
       if (mounted) {
-        // PERF: Avoid JSON.stringify. Check plain text length or sync status change.
         const prevLen = track.lyrics?.plain?.length || 0;
         const newLen = data.plain?.length || 0;
         const becameSynced = !track.lyrics?.synced && data.synced;
@@ -69,7 +68,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
   useEffect(() => {
     if (activeLineIndex !== -1 && scrollRef.current && !isUserScrolling) {
       const activeEl = scrollRef.current.children[activeLineIndex] as HTMLElement;
-      // 'nearest' is less jarring than 'center' if lines are close
       activeEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [activeLineIndex, isUserScrolling]);
@@ -115,61 +113,75 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         onTouchMove={handleScroll}
         style={{ 
           scrollBehavior: 'smooth',
-          // iOS Momentum Scrolling Fix
           WebkitOverflowScrolling: 'touch',
-          // Fade Masks
           maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
           WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)'
         }}
       >
-        <div ref={scrollRef} className="flex flex-col gap-10 max-w-4xl mx-auto text-left pl-4">
+        <div ref={scrollRef} className="flex flex-col gap-8 max-w-4xl mx-auto text-left pl-4">
           {lyrics.lines.map((line, i) => {
-            const isActive = i === activeLineIndex;
-            const isPast = i < activeLineIndex;
+            const isActiveLine = i === activeLineIndex;
+            const isPastLine = i < activeLineIndex;
 
-            // --- 4. KARAOKE MODE ---
+            // --- 4. KARAOKE MODE (Word Sync) ---
             if (lyrics.isWordSynced && line.words?.length) {
               return (
                 <motion.div 
                     key={i} 
-                    className={`origin-left transition-all duration-500`}
-                    initial={{ opacity: 0.5, filter: 'blur(2px)' }}
+                    className={`origin-left transition-all duration-500 py-2`}
+                    initial={{ opacity: 0.5 }}
                     animate={{ 
-                        scale: isActive ? 1.05 : 1,
-                        opacity: isActive ? 1 : isPast ? 0.3 : 0.4,
-                        filter: isActive ? 'blur(0px)' : 'blur(1.5px)'
+                        scale: isActiveLine ? 1 : 1, // Keep lines stable, scale words instead
+                        opacity: isActiveLine ? 1 : isPastLine ? 0.3 : 0.3,
+                        filter: isActiveLine ? 'blur(0px)' : 'blur(1px)'
                     }}
-                    // Default seek to line start if they miss the word
                     onClick={() => onSeek(line.time)}
                 >
-                   {isActive && i === 0 && (
-                      <div className="absolute -top-6 left-0 flex items-center gap-1 text-[10px] text-emerald-400 uppercase tracking-wider font-bold opacity-80">
-                        <Sparkles size={10} /> Word Sync
+                   {isActiveLine && i === activeLineIndex && (
+                      <div className="absolute -top-4 left-0 flex items-center gap-1 text-[10px] text-emerald-400 uppercase tracking-wider font-bold opacity-80 animate-pulse">
+                        <Mic2 size={10} /> Live
                       </div>
                    )}
 
-                   <p className="text-3xl md:text-5xl font-black leading-tight flex flex-wrap gap-x-3 gap-y-1 cursor-pointer">
+                   <p className="text-3xl md:text-5xl font-black leading-tight flex flex-wrap gap-x-3 gap-y-2 cursor-pointer">
                     {line.words.map((word, wIdx) => {
                        const nextWord = line.words![wIdx + 1];
-                       // Active: Current time is AFTER this word start, but BEFORE next word start
-                       const isWordActive = isActive && normalizedTime >= word.time && (!nextWord || normalizedTime < nextWord.time);
-                       // Past: Current time is AFTER this word start
-                       const isWordPast = isActive && normalizedTime >= word.time;
+                       
+                       // LOGIC:
+                       // 1. Is the word historically passed in this active line?
+                       const isWordSung = isActiveLine && normalizedTime >= word.time;
+                       
+                       // 2. Is this the EXACT word being sung right now?
+                       const isWordActive = isActiveLine && normalizedTime >= word.time && (!nextWord || normalizedTime < nextWord.time);
 
                        return (
                          <motion.span 
                            key={wIdx}
-                           // Stop Propagation: Tap specific word to seek exactly there
                            onClick={(e) => { e.stopPropagation(); onSeek(word.time); }}
                            animate={{
-                               color: isWordActive ? '#ffffff' : (isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)'),
-                               scale: isWordActive ? 1.15 : 1,
-                               // The "Bloom" Effect
-                               textShadow: isWordActive ? "0 0 20px rgba(255,255,255,0.8)" : "none",
-                               y: isWordActive ? -2 : 0
+                               // If Active: Brightest White
+                               // If Sung (History): White (Keep it lit!)
+                               // If Future: Transparent White
+                               color: isWordActive 
+                                 ? '#ffffff' 
+                                 : (isWordSung ? '#e5e5e5' : 'rgba(255,255,255,0.25)'),
+                               
+                               scale: isWordActive ? 1.1 : 1,
+                               
+                               // Glow only on the active word
+                               textShadow: isWordActive 
+                                 ? "0 0 25px rgba(255,255,255,0.9), 0 0 10px rgba(255,255,255,0.6)" 
+                                 : "none",
+                               
+                               y: isWordActive ? -4 : 0
                            }}
-                           transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                           className="inline-block origin-bottom will-change-transform hover:scale-110 hover:text-white transition-transform"
+                           transition={{ 
+                             type: "spring", 
+                             stiffness: 400, 
+                             damping: 20,
+                             mass: 0.5 
+                           }}
+                           className="inline-block origin-center will-change-transform"
                          >
                            {word.text}
                          </motion.span>
@@ -180,21 +192,21 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
               );
             }
 
-            // --- 5. STANDARD MODE ---
+            // --- 5. STANDARD MODE (Line Sync Only) ---
             return (
               <motion.div
                 key={i}
-                className="cursor-pointer origin-left group"
+                className="cursor-pointer origin-left group py-2"
                 onClick={() => onSeek(line.time)}
                 animate={{
-                    scale: isActive ? 1.05 : 1,
-                    opacity: isActive ? 1 : isPast ? 0.3 : 0.4,
-                    filter: isActive ? 'blur(0px)' : 'blur(2px)',
-                    color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)'
+                    scale: isActiveLine ? 1.05 : 1,
+                    opacity: isActiveLine ? 1 : isPastLine ? 0.3 : 0.4,
+                    filter: isActiveLine ? 'blur(0px)' : 'blur(2px)',
+                    color: isActiveLine ? '#ffffff' : 'rgba(255,255,255,0.6)'
                 }}
                 transition={{ duration: 0.5 }}
               >
-                <p className={`text-3xl md:text-4xl font-extrabold leading-tight transition-all duration-300 ${isActive ? 'drop-shadow-lg' : 'group-hover:text-white/80'}`}>
+                <p className={`text-3xl md:text-4xl font-extrabold leading-tight transition-all duration-300 ${isActiveLine ? 'drop-shadow-xl' : 'group-hover:text-white/80'}`}>
                   {line.text}
                 </p>
               </motion.div>
@@ -211,7 +223,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="absolute inset-0 z-50 bg-black/70 backdrop-blur-3xl rounded-xl overflow-hidden border border-white/5 shadow-2xl"
+        className="absolute inset-0 z-50 bg-black/80 backdrop-blur-3xl rounded-xl overflow-hidden border border-white/10 shadow-2xl"
       >
         {renderContent()}
       </motion.div>
