@@ -251,6 +251,18 @@ export const fetchLyrics = async (track: Track, force = false, forceAISync = fal
     console.warn('LRCLIB failed', e);
   }
 
+  // FALLBACK: If LRCLIB failed (or returned no lyrics) but we have cached lyrics, use them as base
+  // This is crucial for "Sync with AI" on existing lyrics when LRCLIB is down or fails
+  if ((!rawData || (!rawData.synced && !rawData.plain)) && track.lyrics && !track.lyrics.error) {
+     console.log("LRCLIB failed or empty, falling back to cached lyrics for AI sync base.");
+     bestResult = track.lyrics;
+
+     // We need to reconstruct rawData for the AI
+     // Preference: plain text from lines, or the plain field if available
+     const plainText = track.lyrics.plain || track.lyrics.lines.map(l => l.text).join('\n');
+     rawData = { plain: plainText };
+  }
+
   // 2. Gemini Enhancement if word sync is missing
   // If forceAISync is true, we attempt it even if bestResult thinks it is word synced?
   // Usually we only need to enhance if NOT word synced.
