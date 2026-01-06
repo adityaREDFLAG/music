@@ -168,7 +168,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         <div ref={scrollRef} className="flex flex-col gap-6 text-left pl-4 pr-2 max-w-3xl mx-auto">
             {lyrics.lines.map((line, i) => {
                 const isActive = i === activeLineIndex;
-                const isPast = i < activeLineIndex;
                 
                 // Detect dense lines to slightly reduce size
                 const wordCount = line.words ? line.words.length : line.text.split(' ').length;
@@ -181,15 +180,17 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                             key={i}
                             layout
                             onClick={() => onSeek(line.time)}
-                            initial={{ opacity: 0.5 }}
+                            initial={{ opacity: 0.5, scale: 1, filter: 'blur(2px)' }}
                             animate={{
-                                opacity: isActive ? 1 : 0.5,
-                                filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
+                                opacity: isActive ? 1 : 0.4,
+                                scale: isActive ? 1.05 : 1,
+                                filter: isActive ? 'blur(0px)' : 'blur(1.5px)',
+                                y: isActive ? 0 : 0
                             }}
-                            transition={{ duration: 0.3, ease: "easeOut" }}
+                            transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }} // smooth easeOutQuint-ish
                             className="cursor-pointer origin-left"
                         >
-                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.3em] gap-y-1 transition-all duration-300 ${
+                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-2 transition-all duration-300 ${
                                 isLongLine 
                                   ? 'text-xl md:text-2xl' 
                                   : 'text-2xl md:text-3xl'
@@ -200,21 +201,23 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                                    const isWordPast = isActive && currentTime >= nextWordTime;
 
                                    return (
-                                       <span 
+                                       <motion.span 
                                          key={wIdx}
-                                         className="relative inline-block"
+                                         className="relative inline-block origin-bottom"
+                                         animate={{
+                                             color: isWordActive || isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)',
+                                             scale: isWordActive ? 1.15 : 1,
+                                             y: isWordActive ? -2 : 0,
+                                         }}
+                                         transition={{
+                                             duration: 0.2,
+                                             type: "spring",
+                                             stiffness: 300,
+                                             damping: 20
+                                         }}
                                        >
-                                            <span
-                                             className="transition-colors duration-150"
-                                             style={{
-                                                 color: isActive
-                                                   ? (isWordActive || isWordPast ? '#ffffff' : 'rgba(255,255,255,0.4)')
-                                                   : 'inherit',
-                                             }}
-                                            >
-                                               {word.text}
-                                            </span>
-                                       </span>
+                                           {word.text}
+                                       </motion.span>
                                    );
                                })}
                              </p>
@@ -237,13 +240,14 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         key={i}
                         layout
                         onClick={() => onSeek(line.time)}
-                        initial={{ opacity: 0.5 }}
+                        initial={{ opacity: 0.5, scale: 1, filter: 'blur(2px)' }}
                         animate={{
-                            opacity: isActive ? 1 : 0.5,
-                            filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
+                            opacity: isActive ? 1 : 0.4,
+                            scale: isActive ? 1.05 : 1,
+                            filter: isActive ? 'blur(0px)' : 'blur(1.5px)',
                             color: isActive ? '#ffffff' : 'rgba(255,255,255,0.5)'
                         }}
-                        transition={{ duration: 0.3, ease: "easeOut" }}
+                        transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
                         className="cursor-pointer origin-left"
                     >
                          <p className={`font-bold leading-tight transition-all duration-300 ${
