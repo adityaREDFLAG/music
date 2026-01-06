@@ -109,14 +109,14 @@ export const parseLrc = (lrc: string): Lyrics => {
 
 // --- DETERMINISTIC WORD TIMING GENERATOR (OFFLINE SAFE) ---
 
-const generateWordTiming = (lines: LyricLine[], durationTotal?: number): LyricLine[] => {
+export const generateWordTiming = (lines: LyricLine[], durationTotal?: number): LyricLine[] => {
   return lines.map((line, i) => {
     // If words are already synced (Enhanced LRC), preserve them
     if (line.words && line.words.length > 0) {
       return line;
     }
 
-    // Determine end time of the line
+    // Determine end time of the line (Next line start)
     let endTime = 0;
     if (i < lines.length - 1) {
       endTime = lines[i + 1].time;
@@ -125,7 +125,8 @@ const generateWordTiming = (lines: LyricLine[], durationTotal?: number): LyricLi
       endTime = durationTotal ? Math.min(line.time + 5, durationTotal) : line.time + 5;
     }
 
-    const duration = Math.max(0.5, endTime - line.time);
+    // Ensure strictly positive duration, slightly reduced min to allow for fast lines
+    const lineDuration = Math.max(0.2, endTime - line.time);
 
     // Split text into words, preserving content
     const rawWords = line.text.trim().split(/\s+/);
@@ -134,17 +135,62 @@ const generateWordTiming = (lines: LyricLine[], durationTotal?: number): LyricLi
     }
 
     const wordCount = rawWords.length;
-    const timePerWord = duration / wordCount;
+
+    // --- 3. Insert micro gaps ---
+    // Rule: GAP = 0.03–0.05 seconds
+    const GAP = 0.04;
+
+    // Safety: Don't let gaps consume more than 50% of the line
+    let actualGap = GAP;
+    const totalGapNeeded = (wordCount - 1) * GAP;
+    if (totalGapNeeded > lineDuration * 0.5) {
+      actualGap = (lineDuration * 0.5) / Math.max(1, wordCount - 1);
+    }
+
+    const totalGapTime = (wordCount - 1) * actualGap;
+    const availableForWords = Math.max(0, lineDuration - totalGapTime);
+
+    // --- 2. Bias long words ---
+    // Rule: If word.length >= 6, duration *= 1.3–1.6
+    let totalWeight = 0;
+    const weights = rawWords.map(word => {
+      const len = word.length;
+      let weight = 1.0;
+      if (len >= 6) {
+        weight = 1.5;
+      }
+      totalWeight += weight;
+      return weight;
+    });
+
+    let cursor = line.time;
 
     const words: LyricWord[] = rawWords.map((text, wIdx) => {
-      const start = line.time + (wIdx * timePerWord);
-      const end = start + timePerWord;
+      const weight = weights[wIdx];
+      const wordDuration = (weight / totalWeight) * availableForWords;
+
+      const start = cursor;
+      const end = start + wordDuration;
+
+      // Advance cursor: word duration + gap (if not last word)
+      if (wIdx < wordCount - 1) {
+        cursor = end + actualGap;
+      } else {
+        cursor = end;
+      }
+
       return {
         text,
         time: start,
         endTime: end
       };
     });
+
+    // --- 1. Clamp last word aggressively ---
+    // Rule: lastWord.endTime = nextLine.time
+    if (words.length > 0) {
+      words[words.length - 1].endTime = endTime;
+    }
 
     return {
       ...line,

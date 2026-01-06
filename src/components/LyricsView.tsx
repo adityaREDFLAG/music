@@ -190,15 +190,40 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                             transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }} // smooth easeOutQuint-ish
                             className="cursor-pointer origin-left"
                         >
-                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-2 transition-all duration-300 ${
+                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-2 ${
                                 isLongLine 
                                   ? 'text-xl md:text-2xl' 
                                   : 'text-2xl md:text-3xl'
                              }`}>
                                {line.words.map((word, wIdx) => {
-                                   const nextWordTime = word.endTime ?? line.words![wIdx + 1]?.time ?? Infinity;
-                                   const isWordActive = isActive && currentTime >= word.time && currentTime < nextWordTime;
-                                   const isWordPast = isActive && currentTime >= nextWordTime;
+                                   // --- 4. Hold highlight after word ends ---
+                                   // Rule: HOLD = 0.08–0.15 seconds
+                                   const HOLD = 0.12;
+
+                                   const isLastWord = wIdx === line.words!.length - 1;
+
+                                   // Ensure we have a valid end time. Step 1 logic ensures word.endTime is populated.
+                                   // Fallback to nextWordTime or Infinity just in case.
+                                   const absoluteEndTime = word.endTime ?? line.words![wIdx + 1]?.time ?? Infinity;
+
+                                   let isWordActive = false;
+                                   if (isLastWord) {
+                                       // --- 6. Special rule: last word of line ---
+                                       // "Do NOT advance highlight until next line begins"
+                                       // Since word.endTime is clamped to nextLine.time, using absoluteEndTime works perfectly.
+                                       isWordActive = isActive && currentTime >= word.time && currentTime < absoluteEndTime;
+                                   } else {
+                                       // Intermediate words: Hold visual activity slightly
+                                       isWordActive = isActive && currentTime >= word.time && currentTime < (absoluteEndTime + HOLD);
+                                   }
+
+                                   const isWordPast = isActive && currentTime >= (isLastWord ? absoluteEndTime : absoluteEndTime + HOLD);
+
+                                   // --- 5. Slow fade-out, fast fade-in ---
+                                   // Rule: Fast scale/opacity in, Slower opacity out
+                                   const transitionConfig = isWordActive
+                                     ? { duration: 0.05, ease: 'easeOut' }  // Fast In
+                                     : { duration: 0.4, ease: 'easeOut' };  // Slow Out
 
                                    return (
                                        <motion.span 
@@ -209,12 +234,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                                              scale: isWordActive ? 1.15 : 1,
                                              y: isWordActive ? -2 : 0,
                                          }}
-                                         transition={{
-                                             duration: 0.2,
-                                             type: "spring",
-                                             stiffness: 300,
-                                             damping: 20
-                                         }}
+                                         transition={transitionConfig}
                                        >
                                            {word.text}
                                        </motion.span>
