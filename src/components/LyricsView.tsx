@@ -165,15 +165,12 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         className="w-full h-full overflow-y-auto px-4 py-[50vh] no-scrollbar mask-image-gradient"
         style={{ scrollBehavior: 'smooth' }}
       >
-        <div ref={scrollRef} className="flex flex-col gap-8 text-left pl-4 pr-2 max-w-3xl mx-auto">
+        <div ref={scrollRef} className="flex flex-col gap-6 text-left pl-4 pr-2 max-w-3xl mx-auto">
             {lyrics.lines.map((line, i) => {
                 const isActive = i === activeLineIndex;
                 const isPast = i < activeLineIndex;
                 
-                // ----------------------------------------------------
-                // FIX: Detect if line is long (> 10 words)
-                // This prevents vertical filling by reducing font size for dense lines
-                // ----------------------------------------------------
+                // Detect dense lines to slightly reduce size
                 const wordCount = line.words ? line.words.length : line.text.split(' ').length;
                 const isLongLine = wordCount > 10;
                 
@@ -184,23 +181,18 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                             key={i}
                             layout
                             onClick={() => onSeek(line.time)}
-                            initial={{ opacity: 0.5, scale: 0.95 }}
+                            initial={{ opacity: 0.5 }}
                             animate={{
-                                scale: isActive ? 1 : 0.95,
-                                opacity: isActive ? 1 : isPast ? 0.3 : 0.5,
-                                filter: isActive ? 'blur(0px)' : 'blur(1px)',
-                                y: 0
+                                opacity: isActive ? 1 : 0.5,
+                                filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
                             }}
-                            transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-                            className="cursor-pointer origin-left will-change-transform"
+                            transition={{ duration: 0.3, ease: "easeOut" }}
+                            className="cursor-pointer origin-left"
                         >
-                             {/* Applied Logic: 
-                                 If isLongLine is true, we use text-2xl/3xl instead of text-3xl/4xl 
-                             */}
-                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-1 ${
+                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.3em] gap-y-1 transition-all duration-300 ${
                                 isLongLine 
-                                  ? 'text-2xl md:text-3xl' // Smaller text for long lines
-                                  : 'text-3xl md:text-4xl' // Standard large text for short lines
+                                  ? 'text-xl md:text-2xl' 
+                                  : 'text-2xl md:text-3xl'
                              }`}>
                                {line.words.map((word, wIdx) => {
                                    const nextWordTime = word.endTime ?? line.words![wIdx + 1]?.time ?? Infinity;
@@ -210,29 +202,18 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                                    return (
                                        <span 
                                          key={wIdx}
-                                         className="relative inline-block transition-transform duration-200"
-                                         style={{
-                                            transform: isWordActive ? 'scale(1.1)' : 'scale(1)',
-                                         }}
+                                         className="relative inline-block"
                                        >
                                             <span
-                                             className="relative z-10 transition-colors duration-200"
+                                             className="transition-colors duration-150"
                                              style={{
                                                  color: isActive
-                                                   ? (isWordActive || isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)')
+                                                   ? (isWordActive || isWordPast ? '#ffffff' : 'rgba(255,255,255,0.4)')
                                                    : 'inherit',
                                              }}
                                             >
                                                {word.text}
                                             </span>
-
-                                            {isWordActive && (
-                                              <motion.span
-                                                layoutId="activeWordGlow"
-                                                className="absolute inset-0 bg-white/20 blur-lg rounded-full -z-10 scale-150"
-                                                transition={{ duration: 0.2 }}
-                                              />
-                                            )}
                                        </span>
                                    );
                                })}
@@ -241,7 +222,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                                <motion.p
                                  initial={{ opacity: 0 }}
                                  animate={{ opacity: isActive ? 0.7 : 0.4 }}
-                                 className="text-xl font-medium text-white mt-3 block"
+                                 className="text-lg font-medium text-white mt-2 block"
                                >
                                  {line.translation}
                                </motion.p>
@@ -256,26 +237,24 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         key={i}
                         layout
                         onClick={() => onSeek(line.time)}
-                        initial={{ opacity: 0.5, scale: 0.95 }}
+                        initial={{ opacity: 0.5 }}
                         animate={{
-                            scale: isActive ? 1 : 0.95,
-                            opacity: isActive ? 1 : isPast ? 0.3 : 0.5,
-                            filter: isActive ? 'blur(0px)' : 'blur(1px)',
+                            opacity: isActive ? 1 : 0.5,
+                            filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
                             color: isActive ? '#ffffff' : 'rgba(255,255,255,0.5)'
                         }}
-                        transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-                        className="cursor-pointer origin-left will-change-transform"
+                        transition={{ duration: 0.3, ease: "easeOut" }}
+                        className="cursor-pointer origin-left"
                     >
-                         {/* Applied Logic here as well for consistency */}
-                         <p className={`font-bold leading-tight ${isActive ? 'drop-shadow-lg' : ''} ${
+                         <p className={`font-bold leading-tight transition-all duration-300 ${
                             isLongLine 
-                                ? 'text-2xl md:text-3xl' 
-                                : 'text-3xl md:text-4xl'
+                                ? 'text-xl md:text-2xl' 
+                                : 'text-2xl md:text-3xl'
                          }`}>
                            {line.text}
                          </p>
                          {line.translation && (
-                           <p className="text-xl font-medium text-white/60 mt-3">
+                           <p className="text-lg font-medium text-white/60 mt-2">
                              {line.translation}
                            </p>
                          )}
