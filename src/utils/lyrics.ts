@@ -39,6 +39,47 @@ const extractJSON = (text: string): any | null => {
   }
 };
 
+const reconstructLines = (plainText: string, karaokeWords: { word: string; start: number; end: number }[]): LyricLine[] => {
+  const lines: LyricLine[] = [];
+  let wordIdx = 0;
+
+  plainText.split(/\r?\n/).forEach((rawLine) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) return;
+
+    // Split line into words for matching (simple whitespace split)
+    const lineWords = trimmed.split(/\s+/);
+    const matchedWords: LyricWord[] = [];
+
+    // Try to match AI words to this line
+    for (let i = 0; i < lineWords.length; i++) {
+        // Just consume the next word from AI list
+        const kWord = karaokeWords[wordIdx];
+        if (kWord) {
+            matchedWords.push({
+                time: kWord.start,
+                endTime: kWord.end,
+                text: kWord.word // Use AI's word text to ensure punctuation is correct if AI handled it
+            });
+            wordIdx++;
+        }
+    }
+
+    if (matchedWords.length > 0) {
+        lines.push({
+            time: matchedWords[0].time,
+            text: matchedWords.map(w => w.text).join(' '),
+            words: matchedWords
+        });
+    } else {
+        // Fallback if AI missed words (shouldn't happen if prompts are obeyed)
+        // Or if we ran out of AI words
+    }
+  });
+
+  return lines;
+};
+
 // --- PARSER ---
 
 export const parseLrc = (lrc: string): Lyrics => {
@@ -119,20 +160,42 @@ const getGeminiLyrics = async (
   context: { synced?: string; plain?: string }
 ): Promise<Lyrics | null> => {
   const prompt = `
-    Task: Generate precise word-level synced lyrics (Karaoke style) and translate them to English.
-    Song: "${track.title}" by "${track.artist}"
-    Duration: ${track.duration}s
-    
-    Instructions:
-    1. Output strictly valid JSON.
-    2. Do NOT change the original lyrics text provided below.
-    3. Estimate natural timing for each word based on the song structure.
-    4. Translate each line to English. If the original language is English, translation can be null or empty.
-    5. Format: { "lines": [ { "time": number (seconds), "text": string, "translation": string | null, "words": [ { "time": number, "text": string } ] } ] }
+System: Using KaraokeWorld
 
-    Input Data:
-    ${context.synced ? `Reference LRC:\n${context.synced}` : `Lyrics Text:\n${context.plain}`}
-  `;
+> you are a **karaoke lyrics synchronization engine**.
+>
+> generate **karaoke word-by-word lyrics** from the provided song lyrics.
+> Using KaraokeWorld
+> requirements:
+>
+> * split lyrics **into individual words**
+> * assign **startTime and endTime (in seconds)** for every word
+> * timings must feel natural to real karaoke playback
+> * do **not** change, summarize, or rewrite lyrics
+> * keep punctuation and pauses intact
+>
+> output **JSON only**:
+>
+> \`\`\`json
+> {
+>   "karaokeLyrics": [
+>     {
+>       "word": "hello",
+>       "start": 12.34,
+>       "end": 12.78
+>     }
+>   ]
+> }
+> \`\`\`
+>
+> optimized for **real-time karaoke word highlighting**.
+
+Song: "${track.title}" by "${track.artist}"
+Duration: ${track.duration}s
+
+Input Data:
+${context.synced ? `Reference LRC:\n${context.synced}` : `Lyrics Text:\n${context.plain}`}
+`;
 
   try {
     const res = await fetch(
@@ -157,17 +220,32 @@ const getGeminiLyrics = async (
     if (!rawText) return null;
 
     const parsed = extractJSON(rawText);
-    if (!parsed?.lines || !Array.isArray(parsed.lines)) {
-      console.warn('Gemini returned junk – keeping original synced lyrics');
-      return null;
+
+    // New Parser for KaraokeWorld format
+    if (parsed?.karaokeLyrics && Array.isArray(parsed.karaokeLyrics)) {
+        const plainText = context.plain || (context.synced ? context.synced.replace(/\[\d+:\d+\.\d+\]/g, '') : '');
+        const lines = reconstructLines(plainText, parsed.karaokeLyrics);
+        return {
+            lines,
+            synced: true,
+            isWordSynced: true,
+            error: false
+        };
     }
 
-    return {
-      lines: parsed.lines,
-      synced: true,
-      isWordSynced: true,
-      error: false,
-    };
+    // Fallback/Legacy parser check (in case user switches prompt back or AI hallucinates old format)
+    if (parsed?.lines && Array.isArray(parsed.lines)) {
+      return {
+        lines: parsed.lines,
+        synced: true,
+        isWordSynced: true,
+        error: false,
+      };
+    }
+
+    console.warn('Gemini returned junk – keeping original synced lyrics');
+    return null;
+
   } catch (e) {
     console.warn('Gemini Sync Generation failed:', e);
     return null;
@@ -279,7 +357,11 @@ export const fetchLyrics = async (track: Track, force = false): Promise<Lyrics> 
   // 5. Strategy C: Gemini Enhancement (The "Magic" Step)
   // If we have content, but no word-sync OR no translation, and the user wants AI features, and has a key...
   // We allow enhancement even if we have word sync, to get translations.
-  const needsEnhancement = !bestResult.isWordSynced || !bestResult.lines.some(l => l.translation);
+  // UPDATE: Since the new KaraokeWorld prompt doesn't request translation, we strictly check for word sync here to avoid infinite loops.
+  // If users want translation, they might need a different prompt or we assume KaraokeWorld mode ignores translation.
+  // We allow re-fetching if we have translation but NOT word sync.
+  // But if we have word sync (even without translation), we consider it "enhanced enough" to avoid loop.
+  const needsEnhancement = !bestResult.isWordSynced;
   if (wordSyncEnabled && geminiApiKey && rawData && needsEnhancement) {
     const enhanced = await getGeminiLyrics(track, geminiApiKey, rawData);
     if (enhanced) {

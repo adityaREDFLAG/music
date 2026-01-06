@@ -184,7 +184,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         >
                              <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
                                {line.words.map((word, wIdx) => {
-                                   const nextWordTime = line.words![wIdx + 1]?.time ?? Infinity;
+                                   const nextWordTime = word.endTime ?? line.words![wIdx + 1]?.time ?? Infinity;
                                    
                                    // Is this exact word currently being sung?
                                    const isWordActive = isActive && currentTime >= word.time && currentTime < nextWordTime;

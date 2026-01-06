@@ -62,6 +62,7 @@ export interface Metadata {
 export interface LyricWord {
   time: number;
   text: string;
+  endTime?: number;
 }
 
 export interface LyricLine {
