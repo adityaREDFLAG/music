@@ -28,26 +28,20 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      // Optimistic render: If the track already has lyrics, use them immediately
-      // This prevents layout shift/loading state if we have data
+      // Optimistic render
       if (track.lyrics && !track.lyrics.error) {
         setLyrics(track.lyrics);
         setLoading(false);
       } else {
-        // Only show loading if we have nothing
         setLoading(true);
         setLyrics(null);
         setActiveLineIndex(-1);
       }
 
       try {
-        // Always attempt to fetch/upgrade lyrics
-        // (e.g., if user enabled Word Sync but we only have Line Sync)
         const data = await fetchLyrics(track);
         
         if (mounted) {
-          // Only update if we got *new* lyrics (reference check works because fetchLyrics returns track.lyrics if unchanged)
-          // Or if we had no lyrics before
           if (data !== track.lyrics) {
               setLyrics(data);
               if (onTrackUpdate && !data.error) {
@@ -69,7 +63,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     e.stopPropagation();
     setLoading(true);
     try {
-      // Force refresh AND force Word Sync generation
       const data = await fetchLyrics(track, true, true);
       setLyrics(data);
       if (onTrackUpdate && !data.error) {
@@ -155,7 +148,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     }
 
     if (!lyrics.synced && lyrics.plain) {
-        // Plain text fallback
         return (
             <div className="w-full h-full overflow-y-auto px-8 py-12 text-center no-scrollbar mask-image-gradient">
                 <p className="text-white/90 whitespace-pre-wrap text-xl leading-relaxed font-medium">
@@ -173,7 +165,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         className="w-full h-full overflow-y-auto px-4 py-[50vh] no-scrollbar mask-image-gradient"
         style={{ scrollBehavior: 'smooth' }}
       >
-        <div ref={scrollRef} className="flex flex-col gap-8 text-left pl-4 pr-2">
+        <div ref={scrollRef} className="flex flex-col gap-8 text-left pl-4 pr-2 max-w-3xl mx-auto">
             {lyrics.lines.map((line, i) => {
                 const isActive = i === activeLineIndex;
                 const isPast = i < activeLineIndex;
@@ -183,16 +175,19 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                      return (
                         <motion.div
                             key={i}
+                            layout
                             onClick={() => onSeek(line.time)}
-                            initial={false}
+                            initial={{ opacity: 0.5, scale: 0.95 }}
                             animate={{
-                                scale: isActive ? 1.05 : 1,
-                                opacity: isActive ? 1 : isPast ? 0.4 : 0.6,
-                                filter: isActive ? 'blur(0px)' : 'blur(0.5px)'
+                                scale: isActive ? 1 : 0.95,
+                                opacity: isActive ? 1 : isPast ? 0.3 : 0.5,
+                                filter: isActive ? 'blur(0px)' : 'blur(1px)',
+                                y: 0
                             }}
-                            className="cursor-pointer origin-left"
+                            transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                            className="cursor-pointer origin-left will-change-transform"
                         >
-                             <p className="text-2xl md:text-3xl font-bold leading-tight flex flex-wrap gap-[0.3em]">
+                             <p className="text-3xl md:text-4xl font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-1">
                                {line.words.map((word, wIdx) => {
                                    const nextWordTime = word.endTime ?? line.words![wIdx + 1]?.time ?? Infinity;
                                    
@@ -205,25 +200,42 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                                    return (
                                        <span 
                                          key={wIdx}
-                                         className="transition-all duration-200 inline-block origin-bottom"
+                                         className="relative inline-block transition-transform duration-200"
                                          style={{
-                                             color: isActive
-                                                 ? (isWordActive ? '#ffffff' : isWordPast ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)')
-                                                 : 'inherit',
-                                             transform: isWordActive ? 'scale(1.15)' : 'scale(1)',
-                                             textShadow: isWordActive ? '0 0 20px rgba(255,255,255,0.6)' : 'none',
-                                             fontWeight: isWordActive ? 800 : 'inherit'
+                                           transform: isWordActive ? 'scale(1.1)' : 'scale(1)',
                                          }}
                                        >
-                                           {word.text}
+                                           <span
+                                            className="relative z-10 transition-colors duration-200"
+                                            style={{
+                                               color: isActive
+                                                 ? (isWordActive || isWordPast ? '#ffffff' : 'rgba(255,255,255,0.3)')
+                                                 : 'inherit',
+                                            }}
+                                           >
+                                             {word.text}
+                                           </span>
+
+                                           {/* Active Glow Effect */}
+                                           {isWordActive && (
+                                             <motion.span
+                                               layoutId="activeWordGlow"
+                                               className="absolute inset-0 bg-white/20 blur-lg rounded-full -z-10 scale-150"
+                                               transition={{ duration: 0.2 }}
+                                             />
+                                           )}
                                        </span>
                                    );
                                })}
                              </p>
                              {line.translation && (
-                               <p className="text-lg md:text-xl font-medium text-white/60 mt-2 block">
+                               <motion.p
+                                 initial={{ opacity: 0 }}
+                                 animate={{ opacity: isActive ? 0.7 : 0.4 }}
+                                 className="text-xl font-medium text-white mt-3 block"
+                               >
                                  {line.translation}
-                               </p>
+                               </motion.p>
                              )}
                         </motion.div>
                     );
@@ -233,22 +245,23 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                 return (
                     <motion.div
                         key={i}
+                        layout
                         onClick={() => onSeek(line.time)}
-                        initial={false}
+                        initial={{ opacity: 0.5, scale: 0.95 }}
                         animate={{
-                            scale: isActive ? 1.05 : 1,
-                            opacity: isActive ? 1 : isPast ? 0.4 : 0.6,
-                            filter: isActive ? 'blur(0px)' : 'blur(0.5px)',
-                            color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)'
+                            scale: isActive ? 1 : 0.95,
+                            opacity: isActive ? 1 : isPast ? 0.3 : 0.5,
+                            filter: isActive ? 'blur(0px)' : 'blur(1px)',
+                            color: isActive ? '#ffffff' : 'rgba(255,255,255,0.5)'
                         }}
-                        transition={{ duration: 0.4, ease: "easeOut" }}
-                        className="cursor-pointer origin-left"
+                        transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                        className="cursor-pointer origin-left will-change-transform"
                     >
-                         <p className={`text-2xl md:text-3xl font-bold leading-tight ${isActive ? 'drop-shadow-md' : ''}`}>
+                         <p className={`text-3xl md:text-4xl font-bold leading-tight ${isActive ? 'drop-shadow-lg' : ''}`}>
                            {line.text}
                          </p>
                          {line.translation && (
-                           <p className="text-lg md:text-xl font-medium text-white/60 mt-2">
+                           <p className="text-xl font-medium text-white/60 mt-3">
                              {line.translation}
                            </p>
                          )}
@@ -265,15 +278,15 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="absolute inset-0 z-20 flex flex-col bg-black/40 backdrop-blur-xl rounded-2xl overflow-hidden"
+        className="absolute inset-0 z-20 flex flex-col bg-black/60 backdrop-blur-2xl rounded-t-3xl md:rounded-2xl overflow-hidden"
     >
-      <div className="absolute top-4 right-4 z-50">
+      <div className="absolute top-6 right-6 z-50">
         <button
            onClick={handleGenerateWordSync}
-           className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
+           className="p-3 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all hover:scale-105 active:scale-95"
            title="Estimate Word Timing"
          >
-           <Sparkles size={16} className={loading ? 'animate-pulse text-purple-400' : ''} />
+           <Sparkles size={18} className={loading ? 'animate-pulse text-primary' : ''} />
          </button>
       </div>
       {renderContent()}
