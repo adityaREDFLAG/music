@@ -127,21 +127,29 @@ const getGeminiLyrics = async (
   apiKey: string,
   context: { synced?: string; plain?: string }
 ): Promise<Lyrics | null> => {
-  // CLEANING: Remove existing time tags to avoid confusing the AI
-  const cleanInput = (context.plain || (context.synced || ''))
-    .replace(/[\[<]\d{1,2}:\d{2}(?:\.\d{1,3})?[\]>]/g, '')
-    .trim();
+  // Prefer synced lyrics to provide timing anchors for the AI
+  // Only use plain text if synced is unavailable.
+  const hasSynced = !!context.synced;
+  let cleanInput = (context.synced || context.plain || '').trim();
+
+  // If we only have plain text, strip any potential stray tags.
+  // If we have synced text, KEEP the tags so AI knows the timing.
+  if (!hasSynced) {
+    cleanInput = cleanInput
+      .replace(/[\[<]\d{1,2}:\d{2}(?:\.\d{1,3})?[\]>]/g, '')
+      .trim();
+  }
 
   // Updated Prompt: Ask for a NESTED structure (Lines -> Words)
-  // This prevents the "desync" issue where one extra word breaks the whole song.
   const prompt = `
   System: You are a karaoke engine.
   Task: Return a JSON object containing the lyrics synced word-by-word.
   
   Instructions:
   1. The "input_text" is the reference. Do not add or remove lines.
-  2. "start" and "end" must be in seconds (number).
-  3. Ensure "text" in the output matches the input.
+  2. The input ${hasSynced ? 'contains [mm:ss.xx] timestamps. Use them as the START time for each line. Estimate word timings within the line.' : 'is plain text. Estimate timings based on the song structure.'}
+  3. "start" and "end" must be in seconds (number).
+  4. Ensure "text" in the output matches the input.
   
   Output Schema:
   {
