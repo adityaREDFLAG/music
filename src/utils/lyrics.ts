@@ -122,6 +122,36 @@ export const parseLrc = (lrc: string): Lyrics => {
 
 // --- GEMINI ENHANCER ---
 
+const lyricsSchema = {
+  type: "OBJECT",
+  properties: {
+    karaokeLines: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          text: { type: "STRING" },
+          time: { type: "NUMBER" },
+          words: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                text: { type: "STRING" },
+                start: { type: "NUMBER" },
+                end: { type: "NUMBER" }
+              },
+              required: ["text", "start", "end"]
+            }
+          }
+        },
+        required: ["text", "time", "words"]
+      }
+    }
+  },
+  required: ["karaokeLines"]
+};
+
 const getGeminiLyrics = async (
   track: Track,
   apiKey: string,
@@ -143,28 +173,13 @@ const getGeminiLyrics = async (
   // Updated Prompt: Ask for a NESTED structure (Lines -> Words)
   const prompt = `
   System: You are a karaoke engine.
-  Task: Return a JSON object containing the lyrics synced word-by-word.
+  Task: Align the lyrics word-by-word.
   
   Instructions:
   1. The "input_text" is the reference. Do not add or remove lines.
   2. The input ${hasSynced ? 'contains [mm:ss.xx] timestamps. Use them as the START time for each line. Estimate word timings within the line.' : 'is plain text. Estimate timings based on the song structure.'}
   3. "start" and "end" must be in seconds (number).
   4. Ensure "text" in the output matches the input.
-  
-  Output Schema:
-  {
-    "karaokeLines": [
-      {
-        "text": "Full line text here",
-        "time": 10.5,
-        "words": [
-          { "text": "Full", "start": 10.5, "end": 10.8 },
-          { "text": "line", "start": 10.8, "end": 11.2 },
-          ...
-        ]
-      }
-    ]
-  }
   
   Song: "${track.title}"
   Duration: ${track.duration}s
@@ -182,7 +197,8 @@ const getGeminiLyrics = async (
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { 
             temperature: 0.2, 
-            responseMimeType: 'application/json' 
+            responseMimeType: 'application/json',
+            responseSchema: lyricsSchema
           },
         }),
       }
@@ -206,10 +222,13 @@ const getGeminiLyrics = async (
         }))
       }));
 
+      // Double check that we actually got words
+      const hasWords = lines.some(l => l.words && l.words.length > 0);
+
       return { 
         lines, 
         synced: true, 
-        isWordSynced: true, 
+        isWordSynced: hasWords,
         error: false 
       };
     }

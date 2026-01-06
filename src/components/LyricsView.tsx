@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { fetchLyrics } from '../utils/lyrics';
 import { Track, Lyrics } from '../types';
 import { Loader2, Music2, Sparkles } from 'lucide-react';
+import { useToast } from './Toast';
 
 interface LyricsViewProps {
   track: Track;
@@ -18,6 +19,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
 
+  const { addToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -73,8 +75,15 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
       if (onTrackUpdate && !data.error) {
         onTrackUpdate({ ...track, lyrics: data });
       }
+
+      if (data.isWordSynced) {
+        addToast("Lyrics synced with AI!", "success");
+      } else {
+        addToast("AI Sync failed. Check API Key or try again.", "error");
+      }
     } catch (error) {
       console.error("Failed to sync lyrics with AI:", error);
+      addToast("Failed to sync lyrics", "error");
     } finally {
       setLoading(false);
     }
