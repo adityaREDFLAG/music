@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { fetchLyrics } from '../utils/lyrics';
 import { Track, Lyrics } from '../types';
-import { Loader2, Music2, RefreshCw } from 'lucide-react';
+import { Loader2, Music2, Sparkles } from 'lucide-react';
 
 interface LyricsViewProps {
   track: Track;
@@ -63,17 +63,18 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     return () => { mounted = false; };
   }, [track.id, track.title, track.artist]); // Re-run if track changes
 
-  const handleReload = async (e: React.MouseEvent) => {
+  const handleSyncWithAI = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setLoading(true);
     try {
-      const data = await fetchLyrics(track, true);
+      // Force refresh AND force AI sync
+      const data = await fetchLyrics(track, true, true);
       setLyrics(data);
       if (onTrackUpdate && !data.error) {
         onTrackUpdate({ ...track, lyrics: data });
       }
     } catch (error) {
-      console.error("Failed to reload lyrics:", error);
+      console.error("Failed to sync lyrics with AI:", error);
     } finally {
       setLoading(false);
     }
@@ -127,7 +128,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
       return (
         <div className="w-full h-full flex flex-col items-center justify-center text-white/50">
           <Loader2 className="animate-spin mb-4" size={32} />
-          <p className="font-medium tracking-wide">Loading Lyrics...</p>
+          <p className="font-medium tracking-wide">Syncing with AI...</p>
         </div>
       );
     }
@@ -259,11 +260,11 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
     >
       <div className="absolute top-4 right-4 z-50">
         <button
-           onClick={handleReload}
+           onClick={handleSyncWithAI}
            className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
-           title="Reload Lyrics"
+           title="Sync with AI"
          >
-           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+           <Sparkles size={16} className={loading ? 'animate-pulse text-purple-400' : ''} />
          </button>
       </div>
       {renderContent()}

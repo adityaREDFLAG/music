@@ -215,13 +215,19 @@ const getGeminiLyrics = async (
 
 // --- MAIN FETCH STRATEGY ---
 
-export const fetchLyrics = async (track: Track, force = false): Promise<Lyrics> => {
+export const fetchLyrics = async (track: Track, force = false, forceAISync = false): Promise<Lyrics> => {
   const wordSyncEnabled = await dbService.getSetting<boolean>('wordSyncEnabled');
   const geminiApiKey = await dbService.getSetting<string>('geminiApiKey');
 
+  // Decide if we should try AI sync (if enabled or forced, AND key is present)
+  const shouldTryAISync = (wordSyncEnabled || forceAISync) && !!geminiApiKey;
+
   // Return cache if valid
+  // If force is true, we bypass cache.
   if (!force && track.lyrics && !track.lyrics.error) {
-    if (track.lyrics.isWordSynced || !wordSyncEnabled) return track.lyrics;
+    // If we want AI sync but don't have it, don't return cache
+    // Otherwise return cache
+    if (track.lyrics.isWordSynced || !shouldTryAISync) return track.lyrics;
   }
 
   let bestResult: Lyrics = { lines: [], synced: false, error: true };
@@ -246,7 +252,11 @@ export const fetchLyrics = async (track: Track, force = false): Promise<Lyrics> 
   }
 
   // 2. Gemini Enhancement if word sync is missing
-  if (wordSyncEnabled && geminiApiKey && rawData && !bestResult.isWordSynced) {
+  // If forceAISync is true, we attempt it even if bestResult thinks it is word synced?
+  // Usually we only need to enhance if NOT word synced.
+  // But if the user clicks "Sync with AI", maybe the current word sync is bad or they want to re-run it.
+  // So we allow re-running if forceAISync is set.
+  if (shouldTryAISync && rawData && (!bestResult.isWordSynced || forceAISync)) {
     console.log("Enhancing lyrics with Gemini...");
     const enhanced = await getGeminiLyrics(track, geminiApiKey, rawData);
     if (enhanced) {
