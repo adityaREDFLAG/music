@@ -162,10 +162,10 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         ref={containerRef}
         onWheel={handleUserScroll}
         onTouchMove={handleUserScroll}
-        className="w-full h-full overflow-y-auto px-4 py-[50vh] no-scrollbar mask-image-gradient"
+        className="w-full h-full overflow-y-auto px-4 py-[50%] no-scrollbar mask-image-gradient"
         style={{ scrollBehavior: 'smooth' }}
       >
-        <div ref={scrollRef} className="flex flex-col gap-6 text-left pl-4 pr-2 max-w-3xl mx-auto">
+        <div ref={scrollRef} className="flex flex-col gap-4 text-left pl-4 pr-2 max-w-3xl mx-auto">
             {lyrics.lines.map((line, i) => {
                 const isActive = i === activeLineIndex;
                 
@@ -190,10 +190,10 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                             transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }} // smooth easeOutQuint-ish
                             className="cursor-pointer origin-left"
                         >
-                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-2 ${
+                             <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-1 ${
                                 isLongLine 
-                                  ? 'text-xl md:text-2xl' 
-                                  : 'text-2xl md:text-3xl'
+                                  ? 'text-lg md:text-xl'
+                                  : 'text-xl md:text-2xl'
                              }`}>
                                {line.words.map((word, wIdx) => {
                                    // --- 4. Hold highlight after word ends ---
@@ -272,8 +272,8 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                     >
                          <p className={`font-bold leading-tight transition-all duration-300 ${
                             isLongLine 
-                                ? 'text-xl md:text-2xl' 
-                                : 'text-2xl md:text-3xl'
+                                ? 'text-lg md:text-xl'
+                                : 'text-xl md:text-2xl'
                          }`}>
                            {line.text}
                          </p>
