@@ -12,7 +12,7 @@ export const useAudioPlayer = (
   // --- STATE ---
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [crossfadeAudioElement, setCrossfadeAudioElement] = useState<HTMLAudioElement | null>(null);
-  const [soundCloudPlayer, setSoundCloudPlayer] = useState<ReactPlayer | null>(null); // NEW: ReactPlayer instance
+  const [soundCloudPlayer, setSoundCloudPlayer] = useState<any | null>(null); // NEW: ReactPlayer instance
   
   const [player, setPlayer] = useState<PlayerState>({
     currentTrackId: null,

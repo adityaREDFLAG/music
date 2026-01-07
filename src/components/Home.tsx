@@ -11,7 +11,7 @@ interface HomeProps {
 }
 
 // --- ANIMATION VARIANTS ---
-const containerVariants = {
+const containerVariants: any = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
@@ -22,7 +22,7 @@ const containerVariants = {
   }
 };
 
-const cardVariants = {
+const cardVariants: any = {
   hidden: { opacity: 0, y: 30, scale: 0.9 },
   visible: { 
     opacity: 1, 
