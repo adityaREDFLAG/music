@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Search as SearchIcon, X, Disc, Globe, PlayCircle, Youtube } from 'lucide-react';
-import { Track } from '../types';
+import { Music, Search as SearchIcon, X, Disc, Globe, PlayCircle, Youtube, Plus, ListPlus, Check } from 'lucide-react';
+import { Track, Playlist } from '../types';
 import { searchYouTube, YouTubeTrack } from '../utils/youtube';
+import AddToPlaylistModal from './AddToPlaylistModal';
 
 interface SearchProps {
   activeTab: string;
@@ -11,6 +12,12 @@ interface SearchProps {
   filteredTracks: Track[];
   playTrack: (id: string, options?: { customQueue: string[] }) => void;
   onAddWebTrack?: (url: string, metadata?: YouTubeTrack) => void;
+
+  libraryTracks: Record<string, Track>;
+  playlists: Playlist[];
+  onAddYouTubeTrack: (track: YouTubeTrack) => void;
+  onAddYouTubeToPlaylist: (playlistId: string, track: YouTubeTrack) => void;
+  onCreatePlaylist: (name: string) => void;
 }
 
 const Search: React.FC<SearchProps> = ({ 
@@ -19,12 +26,21 @@ const Search: React.FC<SearchProps> = ({
   setSearchQuery, 
   filteredTracks, 
   playTrack,
-  onAddWebTrack
+  onAddWebTrack,
+  libraryTracks,
+  playlists,
+  onAddYouTubeTrack,
+  onAddYouTubeToPlaylist,
+  onCreatePlaylist
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isWebMode, setIsWebMode] = useState(false);
   const [webTracks, setWebTracks] = useState<YouTubeTrack[]>([]);
   const [isSearchingWeb, setIsSearchingWeb] = useState(false);
+
+  // Modal State
+  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<YouTubeTrack | null>(null);
 
   // Auto-focus input when tab becomes active
   useEffect(() => {
@@ -36,9 +52,14 @@ const Search: React.FC<SearchProps> = ({
   // Handle Escape key
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
-      setSearchQuery('');
-      inputRef.current?.blur();
+      handleClearSearch();
     }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setWebTracks([]);
+    inputRef.current?.focus();
   };
 
   // Optimize click handler to prevent array recreation in the loop
@@ -74,12 +95,17 @@ const Search: React.FC<SearchProps> = ({
     if (onAddWebTrack) {
         onAddWebTrack(url, metadata);
     }
-    if (!metadata) setSearchQuery(''); // Clear if direct URL paste
   };
 
   const showWebInputResult = isYouTubeUrl(searchQuery);
 
+  // Helper to check if a YouTube track is in library
+  const isTrackInLibrary = (ytTrack: YouTubeTrack) => {
+      return Object.values(libraryTracks).some(t => t.source === 'youtube' && t.externalUrl === ytTrack.url);
+  };
+
   return (
+    <>
     <motion.div 
       key="search" 
       initial={{ opacity: 0 }} 
@@ -107,10 +133,7 @@ const Search: React.FC<SearchProps> = ({
                     initial={{ scale: 0, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0, opacity: 0 }}
-                    onClick={() => {
-                    setSearchQuery('');
-                    inputRef.current?.focus();
-                    }}
+                    onClick={handleClearSearch}
                     className="p-2 text-surface-on-variant hover:text-surface-on hover:bg-surface-container-highest/50 rounded-full transition-colors active:scale-90"
                 >
                     <X className="w-5 h-5" />
@@ -171,18 +194,22 @@ const Search: React.FC<SearchProps> = ({
                         <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
                     </div>
                 )}
-                {webTracks.map(t => (
+                {webTracks.map(t => {
+                    const added = isTrackInLibrary(t);
+                    return (
                     <motion.div
                         layout
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         key={t.id}
-                        whileTap={{ scale: 0.98, backgroundColor: 'var(--surface-container-highest)' }}
-                        onClick={() => handleWebPlay(t.url, t)}
-                        className="group flex items-center gap-4 p-2 pr-4 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors active:scale-[0.98]"
+                        className="group flex items-center gap-4 p-2 pr-2 rounded-xl hover:bg-surface-container-high transition-colors"
                     >
-                        <div className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm relative">
+                        {/* Artwork & Play */}
+                        <div
+                            className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm relative cursor-pointer"
+                            onClick={() => handleWebPlay(t.url, t)}
+                        >
                             {t.thumbnail ? (
                                 <img src={t.thumbnail} alt={t.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
                             ) : (
@@ -194,7 +221,9 @@ const Search: React.FC<SearchProps> = ({
                                 </div>
                             </div>
                         </div>
-                        <div className="flex-1 min-w-0">
+
+                        {/* Text Info */}
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleWebPlay(t.url, t)}>
                             <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-red-500 transition-colors flex items-center gap-2">
                                 {t.title}
                             </h4>
@@ -202,9 +231,37 @@ const Search: React.FC<SearchProps> = ({
                                 {t.channel}
                             </p>
                         </div>
-                        <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20">YouTube</span>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1">
+                             <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20 mr-2">WEB</span>
+
+                             <button
+                                onClick={() => {
+                                    setSelectedTrackForPlaylist(t);
+                                    setIsPlaylistModalOpen(true);
+                                }}
+                                className="p-2 text-surface-on-variant hover:text-surface-on hover:bg-surface-container-highest rounded-full transition-colors"
+                                title="Add to Playlist"
+                             >
+                                <ListPlus className="w-5 h-5" />
+                             </button>
+
+                             <button
+                                onClick={() => !added && onAddYouTubeTrack(t)}
+                                disabled={added}
+                                className={`p-2 rounded-full transition-colors ${
+                                    added
+                                    ? 'text-green-500 cursor-default'
+                                    : 'text-surface-on-variant hover:text-primary hover:bg-surface-container-highest'
+                                }`}
+                                title={added ? "Already in Library" : "Add to Library"}
+                             >
+                                {added ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                             </button>
+                        </div>
                     </motion.div>
-                ))}
+                )})}
             </AnimatePresence>
         )}
 
@@ -270,6 +327,20 @@ const Search: React.FC<SearchProps> = ({
         )}
       </div>
     </motion.div>
+
+    <AddToPlaylistModal
+        isOpen={isPlaylistModalOpen}
+        onClose={() => setIsPlaylistModalOpen(false)}
+        playlists={playlists}
+        onSelectPlaylist={(playlistId) => {
+            if (selectedTrackForPlaylist) {
+                onAddYouTubeToPlaylist(playlistId, selectedTrackForPlaylist);
+                setIsPlaylistModalOpen(false);
+            }
+        }}
+        onCreatePlaylist={(name) => onCreatePlaylist(name)}
+    />
+    </>
   );
 };
 

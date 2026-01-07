@@ -186,6 +186,32 @@ export class MusicDB {
       tx.objectStore('artists').put(artist);
       return new Promise((res) => (tx.oncomplete = () => res()));
   }
+
+  async findTrackByUrl(url: string): Promise<Track | undefined> {
+    const tracks = await this.getAllTracks();
+    return tracks.find(t => t.source === 'youtube' && t.externalUrl === url);
+  }
+
+  async addYouTubeTrack(ytTrack: { title: string, channel: string, duration: number, thumbnail: string, url: string }): Promise<Track> {
+    const existing = await this.findTrackByUrl(ytTrack.url);
+    if (existing) return existing;
+
+    const newTrack: Track = {
+        id: crypto.randomUUID(),
+        title: ytTrack.title,
+        artist: ytTrack.channel,
+        album: 'YouTube',
+        duration: ytTrack.duration,
+        addedAt: Date.now(),
+        source: 'youtube',
+        externalUrl: ytTrack.url,
+        coverArt: ytTrack.thumbnail,
+        playCount: 0
+    };
+
+    await this.saveTrack(newTrack);
+    return newTrack;
+  }
 }
 
 export const dbService = new MusicDB();

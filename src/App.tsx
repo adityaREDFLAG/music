@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react';
 import JSZip from 'jszip';
 import ReactPlayer from 'react-player/youtube';
 import { dbService } from './db';
-import { Track, LibraryState, RepeatMode } from './types';
+import { Track, LibraryState, RepeatMode, Playlist } from './types';
 import { useMetadata } from './hooks/useMetadata';
 import { parseTrackMetadata } from './utils/metadata';
 import { extractDominantColor, ThemePalette } from './utils/colors';
@@ -163,6 +163,50 @@ function MusicApp() {
       // Play it
       playTrack(id, { immediate: true });
   }, [refreshLibrary, playTrack]);
+
+  const handleCreatePlaylist = useCallback(async (name: string) => {
+    const newPlaylist: Playlist = {
+        id: crypto.randomUUID(),
+        name,
+        trackIds: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+    };
+    await dbService.savePlaylist(newPlaylist);
+    await refreshLibrary();
+    addToast(`Created playlist "${name}"`, 'success');
+  }, [refreshLibrary, addToast]);
+
+  const handleAddTrackToPlaylist = useCallback(async (playlistId: string, trackId: string) => {
+    const playlist = library.playlists[playlistId];
+    if (!playlist) return;
+
+    if (playlist.trackIds.includes(trackId)) {
+        addToast("Track already in playlist", 'info');
+        return;
+    }
+
+    const updatedPlaylist = {
+        ...playlist,
+        trackIds: [...playlist.trackIds, trackId],
+        updatedAt: Date.now()
+    };
+    await dbService.savePlaylist(updatedPlaylist);
+    await refreshLibrary();
+    addToast("Added to playlist", 'success');
+  }, [library.playlists, refreshLibrary, addToast]);
+
+  const handleAddYouTubeTrack = useCallback(async (ytTrack: YouTubeTrack) => {
+    const track = await dbService.addYouTubeTrack(ytTrack);
+    await refreshLibrary();
+    addToast(`Added "${track.title}" to library`, 'success');
+  }, [refreshLibrary, addToast]);
+
+  const handleAddYouTubeToPlaylist = useCallback(async (playlistId: string, ytTrack: YouTubeTrack) => {
+     const track = await dbService.addYouTubeTrack(ytTrack);
+     await refreshLibrary(); // Ensure track is in library first
+     await handleAddTrackToPlaylist(playlistId, track.id);
+  }, [handleAddTrackToPlaylist, refreshLibrary]);
 
   // --- DERIVED STATE ---
 
@@ -446,6 +490,11 @@ function MusicApp() {
                 filteredTracks={filteredTracks}
                 playTrack={playTrack}
                 onAddWebTrack={handleAddWebTrack}
+                libraryTracks={library.tracks}
+                playlists={Object.values(library.playlists)}
+                onAddYouTubeTrack={handleAddYouTubeTrack}
+                onAddYouTubeToPlaylist={handleAddYouTubeToPlaylist}
+                onCreatePlaylist={handleCreatePlaylist}
               />
             )}
             {activeTab === 'stats' && (
