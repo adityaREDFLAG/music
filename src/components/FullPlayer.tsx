@@ -19,6 +19,7 @@ import {
   Mic2,
   Heart,
   Globe, // Added icon
+  Youtube, // Added YouTube icon
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
@@ -132,8 +133,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
       // Allow scrubbing even if duration is unknown for streams?
-      // SoundCloud streams might have duration. If 0, seekable is false.
-      if (!isSeekable && currentTrack?.source !== 'soundcloud') return;
+      // YouTube streams might have duration. If 0, seekable is false.
+      if (!isSeekable && currentTrack?.source !== 'youtube') return;
 
       const value = Number((e.target as HTMLInputElement).value);
       setLocalScrubValue(value);
@@ -326,9 +327,9 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     />
 
                     {/* WEB MODE BADGE */}
-                    {currentTrack.source === 'soundcloud' && (
-                        <div className="absolute top-4 right-4 bg-orange-500/90 text-white p-2 rounded-full shadow-lg backdrop-blur-sm z-10">
-                            <Globe size={20} />
+                    {currentTrack.source === 'youtube' && (
+                        <div className="absolute top-4 right-4 bg-red-600/90 text-white p-2 rounded-full shadow-lg backdrop-blur-sm z-10">
+                            <Youtube size={20} />
                         </div>
                     )}
 
@@ -404,10 +405,10 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     max={safeDuration}
                     step={0.1} // High resolution for smooth dragging
                     value={displayValue}
-                    disabled={!isSeekable && currentTrack.source !== 'soundcloud'}
+                    disabled={!isSeekable && currentTrack.source !== 'youtube'}
                     onChange={handleScrubChange}
-                    onPointerDown={(e) => (isSeekable || currentTrack.source === 'soundcloud') && handleScrubInteractionStart(e)}
-                    className={`absolute -inset-x-0 -top-2.5 w-full h-8 opacity-0 z-50 ${isSeekable || currentTrack.source === 'soundcloud' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                    onPointerDown={(e) => (isSeekable || currentTrack.source === 'youtube') && handleScrubInteractionStart(e)}
+                    className={`absolute -inset-x-0 -top-2.5 w-full h-8 opacity-0 z-50 ${isSeekable || currentTrack.source === 'youtube' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                     style={{ pointerEvents: 'auto', bottom: '-8px', touchAction: 'none' }}
                   />
 

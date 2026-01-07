@@ -20,8 +20,8 @@ export interface Track {
   playCount?: number;
   lastPlayed?: number;
   isFavorite?: boolean;
-  // NEW: SoundCloud / Web Playback support
-  source?: 'local' | 'soundcloud';
+  // NEW: YouTube / Web Playback support
+  source?: 'local' | 'youtube';
   externalUrl?: string;
 }
 

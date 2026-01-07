@@ -12,7 +12,7 @@ export const useAudioPlayer = (
   // --- STATE ---
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [crossfadeAudioElement, setCrossfadeAudioElement] = useState<HTMLAudioElement | null>(null);
-  const [soundCloudPlayer, setSoundCloudPlayer] = useState<any | null>(null); // NEW: ReactPlayer instance
+  const [webPlayer, setWebPlayer] = useState<any | null>(null); // ReactPlayer instance
   
   const [player, setPlayer] = useState<PlayerState>({
     currentTrackId: null,
@@ -47,7 +47,7 @@ export const useAudioPlayer = (
 
   // Derive Active Source
   const currentTrack = player.currentTrackId ? libraryTracks[player.currentTrackId] : null;
-  const isWebMode = currentTrack?.source === 'soundcloud';
+  const isWebMode = currentTrack?.source === 'youtube';
 
   const saveState = useCallback((state: PlayerState) => {
     dbService.setSetting('playerState', state);
@@ -111,7 +111,7 @@ export const useAudioPlayer = (
         // Restore local blob if needed
         if (saved.currentTrackId) {
              const track = libraryTracks[saved.currentTrackId];
-             if (track && track.source !== 'soundcloud') {
+             if (track && track.source !== 'youtube') {
                 dbService.getAudioBlob(saved.currentTrackId).then(blob => {
                     if (blob && audioElement) {
                         if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
@@ -236,7 +236,7 @@ export const useAudioPlayer = (
     
     // Check if new track is web based
     const nextTrackDef = libraryTracks[trackId];
-    const isNextWeb = nextTrackDef?.source === 'soundcloud';
+    const isNextWeb = nextTrackDef?.source === 'youtube';
 
     // Stop current playback engines before switching logic
     if (audioElement && !audioElement.paused) {
@@ -248,7 +248,7 @@ export const useAudioPlayer = (
     if (!isNextWeb && (player.crossfadeEnabled || player.automixEnabled) && player.currentTrackId && immediate) {
         try {
             const currTrack = libraryTracks[player.currentTrackId];
-            if (currTrack && currTrack.source !== 'soundcloud') {
+            if (currTrack && currTrack.source !== 'youtube') {
                 currentBlob = await dbService.getAudioBlob(player.currentTrackId);
             }
         } catch (e) { console.warn("Could not fetch current blob for crossfade"); }
@@ -452,7 +452,7 @@ export const useAudioPlayer = (
 
   const prevTrack = useCallback(() => {
       // Check current time from either engine
-      const currTime = isWebMode ? (soundCloudPlayer?.getCurrentTime() || 0) : (audioElement?.currentTime || 0);
+      const currTime = isWebMode ? (webPlayer?.getCurrentTime() || 0) : (audioElement?.currentTime || 0);
 
       if (currTime > 3) {
           handleSeek(0);
@@ -465,7 +465,7 @@ export const useAudioPlayer = (
       } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
           playTrack(player.queue[player.queue.length - 1], { immediate: true, fromQueue: true });
       }
-  }, [player.queue, player.currentTrackId, player.repeat, playTrack, audioElement, isWebMode, soundCloudPlayer]);
+  }, [player.queue, player.currentTrackId, player.repeat, playTrack, audioElement, isWebMode, webPlayer]);
 
   // --- SCRUBBING & SEEKING LOGIC ---
 
@@ -523,14 +523,14 @@ export const useAudioPlayer = (
     if (wasPlayingBeforeScrubRef.current) {
         if (isWebMode) {
             setPlayer(p => ({...p, isPlaying: true}));
-            soundCloudPlayer?.seekTo(currentTime);
+            webPlayer?.seekTo(currentTime);
         } else if (audioElement) {
             audioElement.play().catch(console.error);
         }
     } else if (isWebMode) {
-        soundCloudPlayer?.seekTo(currentTime);
+        webPlayer?.seekTo(currentTime);
     }
-  }, [audioElement, isWebMode, soundCloudPlayer, currentTime]);
+  }, [audioElement, isWebMode, webPlayer, currentTime]);
 
   const handleSeek = useCallback((time: number) => {
       // 1. Calculate and clamp valid time
@@ -547,7 +547,7 @@ export const useAudioPlayer = (
 
       // 3. Perform Seek
       if (isWebMode) {
-          soundCloudPlayer?.seekTo(t);
+          webPlayer?.seekTo(t);
       } else if (audioElement) {
            if (audioElement.paused && !wasPlayingBeforeScrubRef.current) {
                safeResumeContext().catch(() => {});
@@ -571,7 +571,7 @@ export const useAudioPlayer = (
               });
           } catch (e) {}
       }
-  }, [audioElement, player.currentTrackId, libraryTracks, duration, isWebMode, soundCloudPlayer]);
+  }, [audioElement, player.currentTrackId, libraryTracks, duration, isWebMode, webPlayer]);
 
   const setVolume = useCallback((volume: number) => {
       const v = Math.max(0, Math.min(1, volume));
@@ -750,7 +750,7 @@ export const useAudioPlayer = (
     if (nextId) {
         // Only preload if next track is LOCAL
         const nextTrack = libraryTracks[nextId];
-        if (nextTrack && nextTrack.source !== 'soundcloud') {
+        if (nextTrack && nextTrack.source !== 'youtube') {
             dbService.getAudioBlob(nextId).then(blob => {
                 if (blob) {
                     const url = URL.createObjectURL(blob);
@@ -814,11 +814,11 @@ export const useAudioPlayer = (
   const onWebEnded = useCallback(() => {
       if (player.repeat === RepeatMode.ONE) {
           // Loop
-          soundCloudPlayer?.seekTo(0);
+          webPlayer?.seekTo(0);
       } else {
           nextTrack();
       }
-  }, [player.repeat, nextTrack, soundCloudPlayer]);
+  }, [player.repeat, nextTrack, webPlayer]);
 
   return {
     player,
@@ -837,7 +837,7 @@ export const useAudioPlayer = (
     toggleShuffle,
     setAudioElement,
     setCrossfadeAudioElement,
-    setSoundCloudPlayer, // Exported setter
+    setWebPlayer, // Exported setter
     onWebProgress,
     onWebDuration,
     onWebEnded
