@@ -3,7 +3,12 @@ import { dbService } from '../db';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { resumeAudioContext, getAudioContext } from './useAudioAnalyzer';
 import { getSmartNextTrack } from '../utils/automix';
-import ReactPlayer from 'react-player';
+// import ReactPlayer from 'react-player'; // Not used directly in hook logic but type referenced if we imported types
+
+const extractVideoId = (url: string): string | null => {
+    const match = url.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})(?:&|\?|$)/);
+    return match ? match[1] : null;
+};
 
 export const useAudioPlayer = (
   libraryTracks: Record<string, Track>,
@@ -242,8 +247,7 @@ export const useAudioPlayer = (
     if (audioElement && !audioElement.paused) {
         audioElement.pause();
     }
-    // We don't manually stop ReactPlayer here, we let state change handle it via prop
-
+    
     let currentBlob: Blob | null = null;
     if (!isNextWeb && (player.crossfadeEnabled || player.automixEnabled) && player.currentTrackId && immediate) {
         try {
@@ -255,6 +259,20 @@ export const useAudioPlayer = (
     }
 
     try {
+      if (immediate && isNextWeb) {
+         // --- IMPERATIVE WEB PLAYBACK TRIGGER ---
+         // Ensure immediate execution within the user gesture context if possible
+         const videoId = nextTrackDef?.externalUrl ? extractVideoId(nextTrackDef.externalUrl) : null;
+         if (videoId && webPlayer) {
+             const internal = webPlayer.getInternalPlayer();
+             // Check if internal player is available and has methods
+             if (internal && typeof internal.loadVideoById === 'function') {
+                 internal.loadVideoById(videoId);
+                 internal.playVideo();
+             }
+         }
+      }
+
       setPlayer(prev => {
         let newQueue = prev.queue;
         let newOriginalQueue = prev.originalQueue;
@@ -308,8 +326,8 @@ export const useAudioPlayer = (
       if (immediate) {
         // --- WEB MODE ---
         if (isNextWeb) {
-            // Logic handled by App.tsx rendering ReactPlayer with `playing=true`
-            // We just need to ensure audio element is stopped/cleared
+            // Even if imperative call failed (cold start), state update above sets `isPlaying: true`
+            // ReactPlayer prop change will eventually trigger it.
             if (audioElement) {
                 audioElement.pause();
                 audioElement.currentTime = 0;
@@ -376,15 +394,19 @@ export const useAudioPlayer = (
       console.error("Playback error", e);
       setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue]);
+  }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue, webPlayer]);
 
   const togglePlay = useCallback(async () => {
     // WEB MODE
     if (isWebMode) {
-        // ReactPlayer is controlled by `player.isPlaying` prop in App.tsx
-        // But we might need to manually resume context or something?
-        // Actually, just toggling state is enough for ReactPlayer prop
-        setPlayer(p => ({ ...p, isPlaying: !p.isPlaying }));
+        const internal = webPlayer?.getInternalPlayer();
+        if (player.isPlaying) {
+             if (internal?.pauseVideo) internal.pauseVideo();
+             setPlayer(p => ({ ...p, isPlaying: false }));
+        } else {
+             if (internal?.playVideo) internal.playVideo();
+             setPlayer(p => ({ ...p, isPlaying: true }));
+        }
         return;
     }
 
@@ -405,7 +427,7 @@ export const useAudioPlayer = (
         if (crossfadeAudioElement) crossfadeAudioElement.pause();
         setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [audioElement, crossfadeAudioElement, isWebMode]);
+  }, [audioElement, crossfadeAudioElement, isWebMode, player.isPlaying, webPlayer]);
 
   // Helper to determine the next track ID (deterministic)
   const calculateNextTrackId = useCallback((currentId: string | null, queue: string[], repeat: RepeatMode, automixEnabled: boolean, automixMode: string): string | null => {
@@ -577,7 +599,6 @@ export const useAudioPlayer = (
       const v = Math.max(0, Math.min(1, volume));
       if (audioElement) audioElement.volume = v;
       if (crossfadeAudioElement) crossfadeAudioElement.volume = v; 
-      // ReactPlayer volume is 0-1 as well? SoundCloud widget is 0-100?
       // react-player standardizes to 0-1
       setPlayer(p => ({ ...p, volume: v }));
   }, [audioElement, crossfadeAudioElement]);
@@ -820,6 +841,18 @@ export const useAudioPlayer = (
       }
   }, [player.repeat, nextTrack, webPlayer]);
 
+  const onWebPlay = useCallback(() => {
+      setPlayer(p => ({ ...p, isPlaying: true }));
+  }, []);
+
+  const onWebPause = useCallback(() => {
+       // Avoid pausing if we are just buffering or seeking?
+       // But for accurate state, we should sync.
+       // However, if we just triggered play, we don't want a stray pause event to kill it.
+       // ReactPlayer fires onPause when buffering sometimes? No, onBuffer.
+       setPlayer(p => ({ ...p, isPlaying: false }));
+  }, []);
+
   return {
     player,
     setPlayer,
@@ -840,6 +873,8 @@ export const useAudioPlayer = (
     setWebPlayer, // Exported setter
     onWebProgress,
     onWebDuration,
-    onWebEnded
+    onWebEnded,
+    onWebPlay, // Exported
+    onWebPause // Exported
   };
 };
