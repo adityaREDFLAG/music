@@ -49,6 +49,11 @@ export const useAudioPlayer = (
   const upcomingTrackIdRef = useRef<string | null>(null);
   const isManualSeekingRef = useRef(false);
 
+  // New Refs for Stability
+  const isSwitchingSourceRef = useRef(false);
+  const fadeOutIntervalRef = useRef<any>(null);
+  const fadeInIntervalRef = useRef<any>(null);
+
   // Derive Active Source
   const currentTrack = player.currentTrackId ? libraryTracks[player.currentTrackId] : null;
   const isWebMode = currentTrack?.source === 'youtube';
@@ -149,6 +154,44 @@ export const useAudioPlayer = (
 
   // --- PLAYBACK LOGIC ---
 
+  const stopAll = useCallback((exclude?: 'web' | 'local') => {
+      // Clear crossfade intervals
+      if (fadeOutIntervalRef.current) {
+          clearInterval(fadeOutIntervalRef.current);
+          fadeOutIntervalRef.current = null;
+      }
+      if (fadeInIntervalRef.current) {
+          clearInterval(fadeInIntervalRef.current);
+          fadeInIntervalRef.current = null;
+      }
+
+      // STOP WEB
+      if (exclude !== 'web' && webPlayer) {
+          const internal = webPlayer.getInternalPlayer();
+          if (internal) {
+              // stopVideo resets player to start and clears buffer
+              if (typeof internal.stopVideo === 'function') {
+                  internal.stopVideo();
+              } else if (typeof internal.pauseVideo === 'function') {
+                  internal.pauseVideo();
+              }
+          }
+      }
+
+      // STOP LOCAL
+      if (exclude !== 'local') {
+          if (audioElement) {
+              audioElement.pause();
+              audioElement.currentTime = 0;
+          }
+          if (crossfadeAudioElement) {
+              crossfadeAudioElement.pause();
+              crossfadeAudioElement.currentTime = 0;
+          }
+          isTransitioningRef.current = false;
+      }
+  }, [audioElement, crossfadeAudioElement, webPlayer]);
+
   const performTransition = async (
     prevBlob: Blob | null,
     nextBlob: Blob,
@@ -179,13 +222,17 @@ export const useAudioPlayer = (
            const steps = (duration * 1000) / stepTime;
            const volStep = startVol / steps;
 
-           const fadeOut = setInterval(() => {
+           if (fadeOutIntervalRef.current) clearInterval(fadeOutIntervalRef.current);
+           fadeOutIntervalRef.current = setInterval(() => {
                if (crossfadeAudioElement.volume > volStep) {
                    crossfadeAudioElement.volume -= volStep;
                } else {
                    crossfadeAudioElement.volume = 0;
                    crossfadeAudioElement.pause();
-                   clearInterval(fadeOut);
+                   if (fadeOutIntervalRef.current) {
+                       clearInterval(fadeOutIntervalRef.current);
+                       fadeOutIntervalRef.current = null;
+                   }
                    isTransitioningRef.current = false;
                }
            }, stepTime);
@@ -211,13 +258,17 @@ export const useAudioPlayer = (
           const volStep = startVol / steps;
 
           let currentVol = 0;
-          const fadeIn = setInterval(() => {
+          if (fadeInIntervalRef.current) clearInterval(fadeInIntervalRef.current);
+          fadeInIntervalRef.current = setInterval(() => {
               if (currentVol < startVol - volStep) {
                   currentVol += volStep;
                   audioElement.volume = currentVol;
               } else {
                   audioElement.volume = startVol;
-                  clearInterval(fadeIn);
+                  if (fadeInIntervalRef.current) {
+                      clearInterval(fadeInIntervalRef.current);
+                      fadeInIntervalRef.current = null;
+                  }
               }
           }, stepTime);
       } else {
@@ -245,15 +296,14 @@ export const useAudioPlayer = (
     // --- WEB MODE: IMMEDIATE START (Sync) ---
     // We must execute this synchronously to preserve user gesture for autoplay
     if (immediate && isNextWeb) {
+        // Prevent stale pause events from local player
+        isSwitchingSourceRef.current = true;
+
         // Mute first to allow autoplay
         setWebMuted(true);
 
         // Stop local playback engines
-        if (audioElement) {
-            audioElement.pause();
-            audioElement.currentTime = 0;
-        }
-        setCurrentTime(0);
+        stopAll('web');
 
         // Update State
         setPlayer(prev => {
@@ -320,6 +370,13 @@ export const useAudioPlayer = (
 
     // --- LOCAL MODE START ---
 
+    if (immediate) {
+        // Prevent stale pause events from web player
+        isSwitchingSourceRef.current = true;
+        // Stop web playback engine
+        stopAll('local');
+    }
+
     // Fallback: If track is not in library (e.g. just added), fetch from DB (ASYNC)
     if (!nextTrackDef) {
        try {
@@ -328,11 +385,6 @@ export const useAudioPlayer = (
        } catch (e) {
          console.warn("Could not fetch track definition from DB", e);
        }
-    }
-
-    // Stop local playback engines
-    if (audioElement && !audioElement.paused) {
-        audioElement.pause();
     }
     
     let currentBlob: Blob | null = null;
@@ -460,7 +512,23 @@ export const useAudioPlayer = (
   const togglePlay = useCallback(async () => {
     // WEB MODE
     if (isWebMode) {
-        setPlayer(p => ({ ...p, isPlaying: !p.isPlaying }));
+        const shouldPlay = !player.isPlaying;
+
+        if (!shouldPlay) {
+            // If we are pausing, we can use the player state update
+            // But if we want it instant:
+            if (webPlayer) {
+                const internal = webPlayer.getInternalPlayer();
+                if (internal && typeof internal.pauseVideo === 'function') internal.pauseVideo();
+            }
+        } else {
+            // If we are playing
+            if (webPlayer) {
+                const internal = webPlayer.getInternalPlayer();
+                if (internal && typeof internal.playVideo === 'function') internal.playVideo();
+            }
+        }
+        setPlayer(p => ({ ...p, isPlaying: shouldPlay }));
         return;
     }
 
@@ -468,6 +536,9 @@ export const useAudioPlayer = (
     if (!audioElement) return;
 
     if (audioElement.paused) {
+        // Ensure web is stopped before local play (just in case)
+        stopAll('local');
+
         safeResumeContext().catch(console.error);
         try {
           await audioElement.play();
@@ -478,10 +549,14 @@ export const useAudioPlayer = (
         }
     } else {
         audioElement.pause();
+        // Pause crossfade if active
         if (crossfadeAudioElement) crossfadeAudioElement.pause();
+        if (fadeOutIntervalRef.current) clearInterval(fadeOutIntervalRef.current);
+        if (fadeInIntervalRef.current) clearInterval(fadeInIntervalRef.current);
+
         setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [audioElement, crossfadeAudioElement, isWebMode]);
+  }, [audioElement, crossfadeAudioElement, isWebMode, player.isPlaying, webPlayer, stopAll]);
 
   // --- AUTOMIX / NEXT TRACK LOGIC ---
   const calculateNextTrackId = useCallback((currentId: string | null, queue: string[], repeat: RepeatMode, automixEnabled: boolean, automixMode: string): string | null => {
@@ -707,8 +782,15 @@ export const useAudioPlayer = (
                nextTrack();
            }
       };
-      const onPause = () => { if (!audioElement.ended && !isTransitioningRef.current) setPlayer(p => ({ ...p, isPlaying: false })); };
-      const onPlay = () => setPlayer(p => ({ ...p, isPlaying: true }));
+      const onPause = () => {
+          if (!audioElement.ended && !isTransitioningRef.current && !isSwitchingSourceRef.current) {
+              setPlayer(p => ({ ...p, isPlaying: false }));
+          }
+      };
+      const onPlay = () => {
+          isSwitchingSourceRef.current = false; // Reset switch flag on successful play
+          setPlayer(p => ({ ...p, isPlaying: true }));
+      };
       const onInterruptionEnd = () => {
           if (player.isPlaying && audioElement.paused) safeResumeContext().then(() => audioElement.play().catch(console.error));
       };
@@ -799,11 +881,14 @@ export const useAudioPlayer = (
   const onWebPlay = useCallback(() => {
       // 🔓 UNLOCK: Audio has started muted, now we unmute it.
       setWebMuted(false); 
+      isSwitchingSourceRef.current = false; // Reset switch flag
       setPlayer(p => ({ ...p, isPlaying: true }));
   }, []);
 
   const onWebPause = useCallback(() => {
-       setPlayer(p => ({ ...p, isPlaying: false }));
+       if (!isSwitchingSourceRef.current) {
+           setPlayer(p => ({ ...p, isPlaying: false }));
+       }
   }, []);
 
   return {
