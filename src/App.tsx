@@ -161,7 +161,7 @@ function MusicApp() {
       await refreshLibrary();
 
       // Play it
-      playTrack(id, { immediate: true });
+      playTrack(id, { immediate: true, trackDef: newTrack });
   }, [refreshLibrary, playTrack]);
 
   const handleCreatePlaylist = useCallback(async (name: string) => {

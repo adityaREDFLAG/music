@@ -233,10 +233,11 @@ export const useAudioPlayer = (
     immediate?: boolean;
     fromQueue?: boolean;
     customQueue?: string[];
+    trackDef?: Track;
   } = {}) => {
-    const { immediate = true, fromQueue = false, customQueue } = options;
+    const { immediate = true, fromQueue = false, customQueue, trackDef } = options;
     
-    let nextTrackDef = libraryTracks[trackId];
+    let nextTrackDef = trackDef || libraryTracks[trackId];
 
     // Identify if next is web (Synchronously if possible)
     const isNextWeb = nextTrackDef?.source === 'youtube';
@@ -454,7 +455,7 @@ export const useAudioPlayer = (
       console.error("Playback error", e);
       setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue]);
+  }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue, webPlayer]);
 
   const togglePlay = useCallback(async () => {
     // WEB MODE
