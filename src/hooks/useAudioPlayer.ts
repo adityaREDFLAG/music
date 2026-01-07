@@ -3,12 +3,6 @@ import { dbService } from '../db';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { resumeAudioContext, getAudioContext } from './useAudioAnalyzer';
 import { getSmartNextTrack } from '../utils/automix';
-// import ReactPlayer from 'react-player'; // Not used directly in hook logic but type referenced if we imported types
-
-const extractVideoId = (url: string): string | null => {
-    const match = url.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})(?:&|\?|$)/);
-    return match ? match[1] : null;
-};
 
 export const useAudioPlayer = (
   libraryTracks: Record<string, Track>,
@@ -33,7 +27,7 @@ export const useAudioPlayer = (
     automixEnabled: false,
     automixMode: 'classic',
     normalizationEnabled: false,
-    lyricOffset: 0 // Default 0ms
+    lyricOffset: 0
   });
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -81,8 +75,6 @@ export const useAudioPlayer = (
     const handleUnlock = async () => {
       await safeResumeContext();
       try {
-        // iOS requires a direct call to play() within the event handler to unlock audio.
-        // We play and immediately pause.
         await audioElement.play();
         audioElement.pause();
         audioElement.currentTime = 0;
@@ -270,19 +262,8 @@ export const useAudioPlayer = (
     }
 
     try {
-      if (immediate && isNextWeb) {
-         // --- IMPERATIVE WEB PLAYBACK TRIGGER ---
-         // Ensure immediate execution within the user gesture context if possible
-         const videoId = nextTrackDef?.externalUrl ? extractVideoId(nextTrackDef.externalUrl) : null;
-         if (videoId && webPlayer) {
-             const internal = webPlayer.getInternalPlayer();
-             // Check if internal player is available and has methods
-             if (internal && typeof internal.loadVideoById === 'function') {
-                 internal.loadVideoById(videoId);
-                 internal.playVideo();
-             }
-         }
-      }
+      // 🚨 DELETED IMPERATIVE YOUTUBE LOGIC HERE
+      // We rely entirely on setPlayer updating state below.
 
       setPlayer(prev => {
         let newQueue = prev.queue;
@@ -330,21 +311,20 @@ export const useAudioPlayer = (
           currentTrackId: trackId,
           queue: newQueue,
           originalQueue: newOriginalQueue,
-          isPlaying: true // Always start playing
+          isPlaying: immediate // This drives ReactPlayer automatically
         };
       });
 
       if (immediate) {
         // --- WEB MODE ---
         if (isNextWeb) {
-            // Even if imperative call failed (cold start), state update above sets `isPlaying: true`
-            // ReactPlayer prop change will eventually trigger it.
+            // Local engine cleanup
             if (audioElement) {
                 audioElement.pause();
                 audioElement.currentTime = 0;
             }
             setCurrentTime(0);
-            return;
+            return; // ReactPlayer takes over via state prop
         }
 
         // --- LOCAL MODE ---
@@ -405,19 +385,14 @@ export const useAudioPlayer = (
       console.error("Playback error", e);
       setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue, webPlayer]);
+  }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue]); // Removed webPlayer dependency
 
   const togglePlay = useCallback(async () => {
     // WEB MODE
     if (isWebMode) {
-        const internal = webPlayer?.getInternalPlayer();
-        if (player.isPlaying) {
-             if (internal?.pauseVideo) internal.pauseVideo();
-             setPlayer(p => ({ ...p, isPlaying: false }));
-        } else {
-             if (internal?.playVideo) internal.playVideo();
-             setPlayer(p => ({ ...p, isPlaying: true }));
-        }
+        // 🚨 DELETED IMPERATIVE TOGGLES
+        // We only flip the state. ReactPlayer props do the rest.
+        setPlayer(p => ({ ...p, isPlaying: !p.isPlaying }));
         return;
     }
 
@@ -438,7 +413,7 @@ export const useAudioPlayer = (
         if (crossfadeAudioElement) crossfadeAudioElement.pause();
         setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [audioElement, crossfadeAudioElement, isWebMode, player.isPlaying, webPlayer]);
+  }, [audioElement, crossfadeAudioElement, isWebMode]); // Removed webPlayer dependency
 
   // Helper to determine the next track ID (deterministic)
   const calculateNextTrackId = useCallback((currentId: string | null, queue: string[], repeat: RepeatMode, automixEnabled: boolean, automixMode: string): string | null => {
@@ -765,7 +740,7 @@ export const useAudioPlayer = (
           document.removeEventListener('visibilitychange', onInterruptionEnd);
           audioElement.removeEventListener('suspend', handleInterruption);
       };
-  }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration, player.isPlaying]); // removed isWebMode to prevent re-bind churn, logic handles web mode
+  }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration, player.isPlaying]);
 
   // --- PRELOAD NEXT TRACK ---
   useEffect(() => {
@@ -857,10 +832,6 @@ export const useAudioPlayer = (
   }, []);
 
   const onWebPause = useCallback(() => {
-       // Avoid pausing if we are just buffering or seeking?
-       // But for accurate state, we should sync.
-       // However, if we just triggered play, we don't want a stray pause event to kill it.
-       // ReactPlayer fires onPause when buffering sometimes? No, onBuffer.
        setPlayer(p => ({ ...p, isPlaying: false }));
   }, []);
 
@@ -881,11 +852,11 @@ export const useAudioPlayer = (
     toggleShuffle,
     setAudioElement,
     setCrossfadeAudioElement,
-    setWebPlayer, // Exported setter
+    setWebPlayer, 
     onWebProgress,
     onWebDuration,
     onWebEnded,
-    onWebPlay, // Exported
-    onWebPause // Exported
+    onWebPlay, 
+    onWebPause 
   };
 };
