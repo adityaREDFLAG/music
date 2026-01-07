@@ -107,60 +107,70 @@ export const parseLrc = (lrc: string): Lyrics => {
   };
 };
 
-// --- DETERMINISTIC WORD TIMING GENERATOR (OFFLINE SAFE) ---
+// --- PROFESSIONAL WORD TIMING ENGINE ---
 
 interface WordAnalysis {
   weight: number;
   confidence: number;
   syllables: number;
+  isFiller: boolean;
 }
 
-const COUNT_VOWELS_REGEX = /[aeiouy]+/gi;
-const LONG_VOWEL_REGEX = /(?:ee|oo|ea|ai|oa|au|ou|ie|ei|oy|uy|aa|ii|uu)/i;
-const CONNECTORS = new Set([
-  'a', 'an', 'the', 'and', 'but', 'or', 'nor',
-  'at', 'by', 'for', 'from', 'in', 'into', 'of', 'off', 'on', 'onto', 'out', 'over', 'to', 'up', 'with',
-  'it', 'is', 'was', 'are', 'am', 'be',
-  'oh', 'uh', 'ah', 'hm', 'hmm'
-]);
+const MIN_WORD_DURATION = 0.08; // 80ms absolute minimum
+const MAX_WORD_DURATION = 1.2;  // 1.2s soft cap
+const OVERLAP_DURATION = 0.08;  // Slight overlap for smoothness
 
 const analyzeWordStructure = (word: string): WordAnalysis => {
   const clean = word.toLowerCase().replace(/[^a-z]/g, '');
-  if (!clean) return { weight: 0.5, confidence: 0.5, syllables: 1 };
 
-  // 1. Syllable Approximation
-  const vowelMatches = clean.match(COUNT_VOWELS_REGEX);
-  const syllables = vowelMatches ? vowelMatches.length : 1;
+  // Empty/Symbol handling
+  if (!clean) return { weight: 0.1, confidence: 0.0, syllables: 0, isFiller: true };
 
-  // 2. Base Weight Calculation
+  // 1. Syllable Counting (Heuristic)
+  const vowelMatches = clean.match(/[aeiouy]+/g);
+  let syllables = vowelMatches ? vowelMatches.length : 1;
+  // Adjustment: silent 'e' at end
+  if (clean.endsWith('e') && syllables > 1 && !/[aeiouy]le$/i.test(clean)) {
+      syllables -= 1;
+  }
+
+  // 2. Weight Factors
   let weight = syllables * 1.0;
 
-  // Vocal Behavior Rules
-  const hasLongVowel = LONG_VOWEL_REGEX.test(clean);
-  if (hasLongVowel) weight += 0.5; // Stretch vowels
+  // Phonetics: Long Vowels (digraphs)
+  const hasLongVowel = /(?:ee|oo|ea|ai|oa|au|ou|ie|ei|oy|uy|aa|ii|uu)/i.test(clean);
+  if (hasLongVowel) weight += 0.4; // Elongated vowel bonus
 
-  const isConnector = CONNECTORS.has(clean);
-  if (isConnector) weight *= 0.6; // Rush connectors
+  // Connectors / Fillers
+  const isConnector = /^(and|the|to|of|in|it|is|on|at|by|my|so|up|or|as|be|do|if|me|we|he|no|oh|uh|ah)$/.test(clean);
+  if (isConnector) {
+      weight *= 0.5; // Shorten connectors significantly
+  } else if (clean.length > 5) {
+      weight *= 1.1; // Longer words naturally take slightly more time
+  }
 
-  if (word.length >= 7) weight *= 1.2; // Complex words take longer
+  // Punctuation/Emphasis
+  // "Emotional or sustained words may overlap neighbors slightly"
+  // We give them more weight so they take up more time in the allocation
+  if (/[\!\?\u2026]$/.test(word)) weight *= 1.4; // Strong emotion/sustain
+  else if (/[\,\.]$/.test(word)) weight *= 1.2; // Pause/Comma
 
-  // Punctuation check (Pause before emotional/end words)
-  // "Pause before emotional words" -> effectively implies the current word is held longer if it has punctuation
-  if (/[\.,\!\?]$/.test(word)) weight *= 1.3;
+  // Capitalization (Emphasis)
+  if (word === word.toUpperCase() && clean.length > 1) weight *= 1.2;
 
-  weight = Math.max(0.3, weight);
+  // Clamp weight
+  weight = Math.max(0.2, weight);
 
   // 3. Confidence Scoring
-  let confidence = 0.8; // Base confidence
+  let confidence = 0.8;
   if (syllables >= 2) confidence += 0.1;
-  if (clean.length > 6) confidence += 0.1;
-  if (isConnector) confidence -= 0.1;
-  if (clean.length < 3 && syllables === 1) confidence -= 0.1; // Short monosyllabic words are risky
+  if (isConnector) confidence -= 0.1; // Short words are harder to predict perfectly
 
   return {
-    weight,
-    confidence: Math.min(0.95, Math.max(0.3, confidence)),
-    syllables
+      weight,
+      confidence: Math.min(0.95, Math.max(0.2, confidence)),
+      syllables,
+      isFiller: isConnector
   };
 };
 
@@ -171,100 +181,136 @@ export const generateWordTiming = (lines: LyricLine[], durationTotal?: number): 
       return line;
     }
 
-    // Determine end time of the line (Next line start)
-    let lineEndTime = 0;
+    // Determine strictly immutable line start and end
+    const lineStart = line.time;
+    let lineEnd = 0;
     if (i < lines.length - 1) {
-      lineEndTime = lines[i + 1].time;
+      lineEnd = lines[i + 1].time;
     } else {
-      // Last line: default to line start + 5s or total duration if available
-      lineEndTime = durationTotal ? Math.min(line.time + 5, durationTotal) : line.time + 5;
+      // Last line: default to line start + 5s or total duration
+      lineEnd = durationTotal ? Math.min(line.time + 5, durationTotal) : line.time + 5;
     }
 
-    // Ensure strictly positive duration
-    const lineDuration = Math.max(0.1, lineEndTime - line.time);
+    // Hard Constraint: All word timings must stay strictly within the line duration
+    let lineDuration = Math.max(0.1, lineEnd - lineStart);
 
-    // Split text into words, preserving content
+    // Split text
     const rawWords = line.text.trim().split(/\s+/);
     if (rawWords.length === 0 || (rawWords.length === 1 && rawWords[0] === '')) {
       return { ...line, words: [] };
     }
 
-    // Phase 1: Analyze & Weighting
+    // Phase 1: Analyze
     const analyses = rawWords.map(analyzeWordStructure);
     const totalWeight = analyses.reduce((sum, a) => sum + a.weight, 0);
 
-    let currentTime = line.time;
-    let words: LyricWord[] = [];
+    // Phase 2: Allocate Duration
+    // Initial naive allocation
+    let wordDurations = analyses.map(a => (a.weight / totalWeight) * lineDuration);
 
-    // Phase 2: Allocation & Timing
-    rawWords.forEach((text, idx) => {
-      const analysis = analyses[idx];
-      const wordDuration = (analysis.weight / totalWeight) * lineDuration;
+    // Phase 3: Enforce Quality Controls (Min Duration)
+    // We try to enforce 80ms min. If a word is < 0.08s, we steal from neighbors.
+    // Iterative correction
+    let needsCorrection = true;
+    let iterations = 0;
 
-      // Visual Timing Behavior: Lead (-40ms) & Tail (+60ms)
-      // Note: We track the "logical" time for calculation flow, but output the "visual" time.
-      // However, we must ensure sequential consistency.
+    while (needsCorrection && iterations < 5) {
+        needsCorrection = false;
+        iterations++;
 
-      const calculatedStart = currentTime;
-      const calculatedEnd = currentTime + wordDuration;
+        for (let j = 0; j < wordDurations.length; j++) {
+            if (wordDurations[j] < MIN_WORD_DURATION) {
+                const deficit = MIN_WORD_DURATION - wordDurations[j];
 
-      const visualStart = calculatedStart - 0.04;
-      const visualEnd = calculatedEnd + 0.06;
+                // Find a donor (preferably a long neighbor)
+                // Check right neighbor first, then left
+                let donorIndex = -1;
 
-      words.push({
-        text,
-        time: visualStart,
-        endTime: visualEnd,
-        confidence: analysis.confidence
-      });
+                if (j < wordDurations.length - 1 && wordDurations[j+1] > MIN_WORD_DURATION + deficit) {
+                    donorIndex = j + 1;
+                } else if (j > 0 && wordDurations[j-1] > MIN_WORD_DURATION + deficit) {
+                    donorIndex = j - 1;
+                }
 
-      currentTime += wordDuration;
-    });
-
-    // Phase 3: Grouping (Confidence-based Fallback)
-    // "If confidence < 0.6, group words"
-    // We iterate backwards to merge into previous or forwards to merge next?
-    // Forward merge strategy: If current is low conf, merge with next.
-    const groupedWords: LyricWord[] = [];
-
-    for (let j = 0; j < words.length; j++) {
-      let current = words[j];
-
-      // Attempt to group if confidence is low, but don't group if it makes the chunk too long (> 3 words)
-      // We will perform a lookahead merge.
-
-      while (
-        j < words.length - 1 &&
-        (current.confidence! < 0.6 || words[j+1].confidence! < 0.6) &&
-        // Safety break: don't merge across long gaps (unlikely here since we densely packed)
-        // Safety break: limit group size? Let's just merge pairs or triplets naturally.
-        (groupedWords.length === 0 || groupedWords[groupedWords.length - 1].endTime! <= current.time) // Sanity check
-      ) {
-         // Merge j and j+1
-         const next = words[j+1];
-
-         // Combined text
-         current.text += ' ' + next.text;
-
-         // Combined timing: Start of first, End of second (plus the tail logic is already in 'next')
-         // Actually, current.endTime is (T1 + 0.06), next.endTime is (T2 + 0.06).
-         // We want the visual group to span from T1_start to T2_end.
-         current.endTime = next.endTime;
-
-         // Average confidence? Or take min?
-         current.confidence = (current.confidence! + next.confidence!) / 2;
-
-         // Update loop index to skip the merged word
-         j++;
-      }
-
-      groupedWords.push(current);
+                if (donorIndex !== -1) {
+                    wordDurations[j] += deficit;
+                    wordDurations[donorIndex] -= deficit;
+                    needsCorrection = true; // Re-check constraints
+                }
+            }
+        }
     }
 
-    // Phase 4: Final visual polish (clamp overlaps if they got too wild due to merging?)
-    // Our logic `visualEnd = calculatedEnd + 0.06` and `visualStart = calculatedStart - 0.04`
-    // naturally creates 0.1s overlap.
-    // The grouping preserves the outer bounds.
+    // If still failing (e.g. extremely fast rap), normalize to fit exactly
+    // (We prioritize line duration over min-width if we have to choose)
+    const currentTotal = wordDurations.reduce((a, b) => a + b, 0);
+    if (Math.abs(currentTotal - lineDuration) > 0.001) {
+        const scale = lineDuration / currentTotal;
+        wordDurations = wordDurations.map(d => d * scale);
+    }
+
+    // Phase 4: Generate Timestamps & Smoothing
+    let cursor = lineStart;
+    let words: LyricWord[] = [];
+
+    rawWords.forEach((text, idx) => {
+        let duration = wordDurations[idx];
+        const analysis = analyses[idx];
+
+        // "Word timings must progress forward without jitter"
+        // Start is exactly current cursor
+        const start = cursor;
+        const end = cursor + duration; // Logical end
+
+        // "Emotional or sustained words may overlap neighbors slightly"
+        // We add overlap to visual endTime only, not affecting the next word's start time
+        const overlap = analysis.isFiller ? 0 : OVERLAP_DURATION;
+
+        // Enforce Max Duration (Soft Cap)
+        // If a word is really long (e.g. > 1.2s), we visually cap it to prevent "stuck" highlight look,
+        // UNLESS it's a very long word (high syllable count) which justifies the length.
+        let visualEndTime = end + overlap;
+
+        // If duration is > 1.2s and syllables < 3, cap it.
+        // We do this by modifying visualEndTime.
+        // We do NOT modify 'cursor' or 'duration' because we need to preserve the timing slot for the next word.
+        if (duration > MAX_WORD_DURATION && analysis.syllables < 3) {
+             // Cap visual duration to 1.2s
+             visualEndTime = start + MAX_WORD_DURATION + overlap;
+        }
+
+        words.push({
+            text,
+            time: start, // Visual start
+            endTime: visualEndTime, // Visual end (potentially capped)
+            confidence: analysis.confidence
+        });
+
+        cursor += duration;
+    });
+
+    // Phase 5: Fallback / Grouping
+    // "If confident word-level timing cannot be produced, return grouped words"
+    // We group if confidence is very low.
+    const groupedWords: LyricWord[] = [];
+    for (let j = 0; j < words.length; j++) {
+        let current = words[j];
+
+        // Look ahead for low confidence sequence
+        while (
+            j < words.length - 1 &&
+            (current.confidence! < 0.5 || words[j+1].confidence! < 0.5) &&
+            // Don't create groups longer than 1.5s usually
+            (words[j+1].endTime! - current.time < 1.5)
+        ) {
+            const next = words[j+1];
+            current.text += ' ' + next.text;
+            current.endTime = next.endTime;
+            current.confidence = (current.confidence! + next.confidence!) / 2;
+            j++;
+        }
+        groupedWords.push(current);
+    }
 
     return {
       ...line,
@@ -282,23 +328,15 @@ export const fetchLyrics = async (track: Track, force = false, forceResync = fal
   const shouldGenerateWordTiming = wordSyncEnabled || forceResync;
 
   // Return cache if valid
-  // If force is true, we bypass cache.
-  // If forceResync is true, we might need to re-process the cached lyrics if they aren't word-synced.
   if (!force && track.lyrics && !track.lyrics.error) {
-    // If we want word sync, but the cache doesn't have it, we should proceed to generation
-    // unless force is false and we rely on the cache.
-    // However, if we have cache, we can just upgrade it in-place without fetching LRCLIB again.
     if (track.lyrics.isWordSynced || !shouldGenerateWordTiming) {
       return track.lyrics;
     }
-    // If we have cached lyrics but they are not word synced and we want them to be,
-    // we can skip the network fetch and go straight to generation using the cache.
-    // But we need to make sure we don't skip the "Best Result" logic below.
   }
 
   let bestResult: Lyrics = { lines: [], synced: false, error: true };
 
-  // 1. Try LRCLIB (only if force is true or we don't have good cached lyrics to work with)
+  // 1. Try LRCLIB
   let fetchedNewLyrics = false;
   if (force || !track.lyrics || track.lyrics.error) {
     try {
@@ -319,15 +357,14 @@ export const fetchLyrics = async (track: Track, force = false, forceResync = fal
     }
   }
 
-  // FALLBACK: Use cached lyrics as base if LRCLIB failed or we didn't fetch
+  // FALLBACK: Use cached lyrics
   if (!fetchedNewLyrics && track.lyrics && !track.lyrics.error) {
      bestResult = track.lyrics;
   }
 
   // 2. Deterministic Word Timing Generation
-  // Apply if enabled/forced AND the lyrics are synced (have lines) BUT not yet word-synced
   if (shouldGenerateWordTiming && bestResult.synced && !bestResult.isWordSynced) {
-    console.log("Generating deterministic word timings...");
+    console.log("Generating professional word timings...");
     const enhancedLines = generateWordTiming(bestResult.lines, track.duration);
     bestResult = {
       ...bestResult,
@@ -335,10 +372,6 @@ export const fetchLyrics = async (track: Track, force = false, forceResync = fal
       isWordSynced: true
     };
   } else if (forceResync && bestResult.synced) {
-     // Even if it says isWordSynced, forceResync might mean "regenerate" (e.g. if previous was bad)
-     // But wait, if it was Enhanced LRC from source, we shouldn't overwrite it with dumb generation?
-     // generateWordTiming checks `if (line.words...) return line;` so it preserves Enhanced LRC.
-     // So calling it again is safe.
      const enhancedLines = generateWordTiming(bestResult.lines, track.duration);
      bestResult = {
         ...bestResult,
