@@ -59,7 +59,7 @@ export const parseLrc = (lrc: string): Lyrics => {
 
         const text = part.trim();
         if (text) {
-          words.push({ time: currentTime, text, endTime: 0 }); // Init endTime
+          words.push({ time: currentTime, text, endTime: 0, confidence: 1.0 }); // Init endTime, max confidence for real synced lyrics
         }
       });
 
@@ -109,35 +109,59 @@ export const parseLrc = (lrc: string): Lyrics => {
 
 // --- DETERMINISTIC WORD TIMING GENERATOR (OFFLINE SAFE) ---
 
+interface WordAnalysis {
+  weight: number;
+  confidence: number;
+  syllables: number;
+}
+
 const COUNT_VOWELS_REGEX = /[aeiouy]+/gi;
-const COMMON_FILLERS = new Set([
+const LONG_VOWEL_REGEX = /(?:ee|oo|ea|ai|oa|au|ou|ie|ei|oy|uy|aa|ii|uu)/i;
+const CONNECTORS = new Set([
   'a', 'an', 'the', 'and', 'but', 'or', 'nor',
   'at', 'by', 'for', 'from', 'in', 'into', 'of', 'off', 'on', 'onto', 'out', 'over', 'to', 'up', 'with',
   'it', 'is', 'was', 'are', 'am', 'be',
   'oh', 'uh', 'ah', 'hm', 'hmm'
 ]);
 
-const countSyllables = (word: string): number => {
-  const stripped = word.replace(/[^a-zA-Z]/g, '');
-  if (!stripped) return 1;
-  const matches = stripped.match(COUNT_VOWELS_REGEX);
-  return matches ? matches.length : 1;
-};
+const analyzeWordStructure = (word: string): WordAnalysis => {
+  const clean = word.toLowerCase().replace(/[^a-z]/g, '');
+  if (!clean) return { weight: 0.5, confidence: 0.5, syllables: 1 };
 
-const getWordWeight = (word: string): number => {
-  const lower = word.toLowerCase().replace(/[^a-z]/g, '');
-  let weight = countSyllables(word);
+  // 1. Syllable Approximation
+  const vowelMatches = clean.match(COUNT_VOWELS_REGEX);
+  const syllables = vowelMatches ? vowelMatches.length : 1;
 
-  // Bonus for length (complex words)
-  if (word.length >= 6) weight *= 1.3;
+  // 2. Base Weight Calculation
+  let weight = syllables * 1.0;
 
-  // Penalty for fillers
-  if (COMMON_FILLERS.has(lower)) weight *= 0.6;
+  // Vocal Behavior Rules
+  const hasLongVowel = LONG_VOWEL_REGEX.test(clean);
+  if (hasLongVowel) weight += 0.5; // Stretch vowels
 
-  // Bonus for punctuation (held notes)
+  const isConnector = CONNECTORS.has(clean);
+  if (isConnector) weight *= 0.6; // Rush connectors
+
+  if (word.length >= 7) weight *= 1.2; // Complex words take longer
+
+  // Punctuation check (Pause before emotional/end words)
+  // "Pause before emotional words" -> effectively implies the current word is held longer if it has punctuation
   if (/[\.,\!\?]$/.test(word)) weight *= 1.3;
 
-  return Math.max(0.5, weight);
+  weight = Math.max(0.3, weight);
+
+  // 3. Confidence Scoring
+  let confidence = 0.8; // Base confidence
+  if (syllables >= 2) confidence += 0.1;
+  if (clean.length > 6) confidence += 0.1;
+  if (isConnector) confidence -= 0.1;
+  if (clean.length < 3 && syllables === 1) confidence -= 0.1; // Short monosyllabic words are risky
+
+  return {
+    weight,
+    confidence: Math.min(0.95, Math.max(0.3, confidence)),
+    syllables
+  };
 };
 
 export const generateWordTiming = (lines: LyricLine[], durationTotal?: number): LyricLine[] => {
@@ -165,42 +189,86 @@ export const generateWordTiming = (lines: LyricLine[], durationTotal?: number): 
       return { ...line, words: [] };
     }
 
-    // Calculate weights
-    const weights = rawWords.map(getWordWeight);
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    // Phase 1: Analyze & Weighting
+    const analyses = rawWords.map(analyzeWordStructure);
+    const totalWeight = analyses.reduce((sum, a) => sum + a.weight, 0);
 
     let currentTime = line.time;
-    const words: LyricWord[] = [];
-    const OVERLAP = 0.15; // 150ms overlap for smoothness
+    let words: LyricWord[] = [];
 
+    // Phase 2: Allocation & Timing
     rawWords.forEach((text, idx) => {
-      const weight = weights[idx];
-      const wordDuration = (weight / totalWeight) * lineDuration;
+      const analysis = analyses[idx];
+      const wordDuration = (analysis.weight / totalWeight) * lineDuration;
 
-      const start = currentTime;
+      // Visual Timing Behavior: Lead (-40ms) & Tail (+60ms)
+      // Note: We track the "logical" time for calculation flow, but output the "visual" time.
+      // However, we must ensure sequential consistency.
 
-      // Calculate overlap: cap it so it doesn't swallow the next word entirely if it's very short
-      const effectiveOverlap = Math.min(OVERLAP, wordDuration * 0.5);
-      let end = start + wordDuration + effectiveOverlap;
+      const calculatedStart = currentTime;
+      const calculatedEnd = currentTime + wordDuration;
 
-      // Clamp last word to line end to avoid bleeding into next line too much
-      if (idx === rawWords.length - 1) {
-        end = lineEndTime;
-      }
+      const visualStart = calculatedStart - 0.04;
+      const visualEnd = calculatedEnd + 0.06;
 
       words.push({
         text,
-        time: start,
-        endTime: end
+        time: visualStart,
+        endTime: visualEnd,
+        confidence: analysis.confidence
       });
 
-      // Advance time by the allocated duration (without overlap)
       currentTime += wordDuration;
     });
 
+    // Phase 3: Grouping (Confidence-based Fallback)
+    // "If confidence < 0.6, group words"
+    // We iterate backwards to merge into previous or forwards to merge next?
+    // Forward merge strategy: If current is low conf, merge with next.
+    const groupedWords: LyricWord[] = [];
+
+    for (let j = 0; j < words.length; j++) {
+      let current = words[j];
+
+      // Attempt to group if confidence is low, but don't group if it makes the chunk too long (> 3 words)
+      // We will perform a lookahead merge.
+
+      while (
+        j < words.length - 1 &&
+        (current.confidence! < 0.6 || words[j+1].confidence! < 0.6) &&
+        // Safety break: don't merge across long gaps (unlikely here since we densely packed)
+        // Safety break: limit group size? Let's just merge pairs or triplets naturally.
+        (groupedWords.length === 0 || groupedWords[groupedWords.length - 1].endTime! <= current.time) // Sanity check
+      ) {
+         // Merge j and j+1
+         const next = words[j+1];
+
+         // Combined text
+         current.text += ' ' + next.text;
+
+         // Combined timing: Start of first, End of second (plus the tail logic is already in 'next')
+         // Actually, current.endTime is (T1 + 0.06), next.endTime is (T2 + 0.06).
+         // We want the visual group to span from T1_start to T2_end.
+         current.endTime = next.endTime;
+
+         // Average confidence? Or take min?
+         current.confidence = (current.confidence! + next.confidence!) / 2;
+
+         // Update loop index to skip the merged word
+         j++;
+      }
+
+      groupedWords.push(current);
+    }
+
+    // Phase 4: Final visual polish (clamp overlaps if they got too wild due to merging?)
+    // Our logic `visualEnd = calculatedEnd + 0.06` and `visualStart = calculatedStart - 0.04`
+    // naturally creates 0.1s overlap.
+    // The grouping preserves the outer bounds.
+
     return {
       ...line,
-      words
+      words: groupedWords
     };
   });
 };

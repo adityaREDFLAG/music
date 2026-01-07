@@ -63,6 +63,7 @@ export interface LyricWord {
   time: number;
   text: string;
   endTime?: number;
+  confidence?: number;
 }
 
 export interface LyricLine {
