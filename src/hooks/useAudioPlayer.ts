@@ -238,7 +238,88 @@ export const useAudioPlayer = (
     
     let nextTrackDef = libraryTracks[trackId];
 
-    // Fallback: If track is not in library (e.g. just added), fetch from DB
+    // Identify if next is web (Synchronously if possible)
+    const isNextWeb = nextTrackDef?.source === 'youtube';
+
+    // --- WEB MODE: IMMEDIATE START (Sync) ---
+    // We must execute this synchronously to preserve user gesture for autoplay
+    if (immediate && isNextWeb) {
+        // Mute first to allow autoplay
+        setWebMuted(true);
+
+        // Stop local playback engines
+        if (audioElement) {
+            audioElement.pause();
+            audioElement.currentTime = 0;
+        }
+        setCurrentTime(0);
+
+        // Update State
+        setPlayer(prev => {
+            let newQueue = prev.queue;
+            let newOriginalQueue = prev.originalQueue;
+
+            if (customQueue) {
+              newQueue = [...customQueue];
+              newOriginalQueue = [...customQueue];
+              if (prev.shuffle) {
+                 const others = customQueue.filter(id => id !== trackId);
+                 newQueue = [trackId, ...shuffleArray(others)];
+              }
+            } else if (!fromQueue) {
+                 if (prev.queue.length === 0) {
+                     newQueue = [trackId];
+                     newOriginalQueue = [trackId];
+                 } else {
+                     const filteredQueue = prev.queue.filter(id => id !== trackId);
+                     let newCurrentIdx = filteredQueue.indexOf(prev.currentTrackId || '');
+                     if (newCurrentIdx === -1) newCurrentIdx = 0;
+
+                     if (prev.currentTrackId === trackId) {
+                          newQueue = [trackId, trackId, ...filteredQueue];
+                     } else {
+                          const q = [...filteredQueue];
+                          q.splice(newCurrentIdx + 1, 0, trackId);
+                          newQueue = q;
+                     }
+
+                     if (!prev.originalQueue.includes(trackId)) {
+                          newOriginalQueue = [...prev.originalQueue, trackId];
+                     }
+                 }
+            }
+
+            if (nextTrackDef) {
+               updateMediaSession(nextTrackDef);
+               setDuration(nextTrackDef.duration || 0);
+            }
+
+            return {
+              ...prev,
+              currentTrackId: trackId,
+              queue: newQueue,
+              originalQueue: newOriginalQueue,
+              isPlaying: true
+            };
+        });
+
+        // Trigger Load
+        if (webPlayer && nextTrackDef?.externalUrl) {
+            const id = extractVideoId(nextTrackDef.externalUrl);
+            if (id) {
+                // webPlayer.seekTo(0); // Not needed with loadVideoById usually
+                const internalPlayer = webPlayer.getInternalPlayer();
+                if (internalPlayer && typeof internalPlayer.loadVideoById === 'function') {
+                    internalPlayer.loadVideoById(id);
+                }
+            }
+        }
+        return; // EXIT EARLY
+    }
+
+    // --- LOCAL MODE START ---
+
+    // Fallback: If track is not in library (e.g. just added), fetch from DB (ASYNC)
     if (!nextTrackDef) {
        try {
          const t = await dbService.getTrack(trackId);
@@ -248,15 +329,13 @@ export const useAudioPlayer = (
        }
     }
 
-    const isNextWeb = nextTrackDef?.source === 'youtube';
-
-    // Stop local playback engines before switching logic
+    // Stop local playback engines
     if (audioElement && !audioElement.paused) {
         audioElement.pause();
     }
     
     let currentBlob: Blob | null = null;
-    if (!isNextWeb && (player.crossfadeEnabled || player.automixEnabled) && player.currentTrackId && immediate) {
+    if ((player.crossfadeEnabled || player.automixEnabled) && player.currentTrackId && immediate) {
         try {
             const currTrack = libraryTracks[player.currentTrackId];
             if (currTrack && currTrack.source !== 'youtube') {
@@ -266,11 +345,6 @@ export const useAudioPlayer = (
     }
 
     try {
-      // 🔒 LOCK: If next track is web, start MUTED to allow autoplay
-      if (immediate && isNextWeb) {
-          setWebMuted(true);
-      }
-
       setPlayer(prev => {
         let newQueue = prev.queue;
         let newOriginalQueue = prev.originalQueue;
@@ -322,29 +396,6 @@ export const useAudioPlayer = (
       });
 
       if (immediate) {
-        // --- WEB MODE ---
-        if (isNextWeb) {
-            // Local cleanup
-            if (audioElement) {
-                audioElement.pause();
-                audioElement.currentTime = 0;
-            }
-            setCurrentTime(0);
-
-            // Imperatively load the video ID to prevent iframe reload
-            if (webPlayer && nextTrackDef?.externalUrl) {
-                const id = extractVideoId(nextTrackDef.externalUrl);
-                if (id) {
-                    webPlayer.seekTo(0);
-                    const internalPlayer = webPlayer.getInternalPlayer();
-                    if (internalPlayer && typeof internalPlayer.loadVideoById === 'function') {
-                        internalPlayer.loadVideoById(id);
-                    }
-                }
-            }
-            return;
-        }
-
         // --- LOCAL MODE ---
         if (!audioElement) return;
 
@@ -571,9 +622,17 @@ export const useAudioPlayer = (
   const setVolume = useCallback((volume: number) => {
       const v = Math.max(0, Math.min(1, volume));
       if (audioElement) audioElement.volume = v;
-      if (crossfadeAudioElement) crossfadeAudioElement.volume = v; 
+      if (crossfadeAudioElement) crossfadeAudioElement.volume = v;
+
+      if (webPlayer) {
+          const internal = webPlayer.getInternalPlayer();
+          if (internal && typeof internal.setVolume === 'function') {
+              internal.setVolume(v * 100);
+          }
+      }
+
       setPlayer(p => ({ ...p, volume: v }));
-  }, [audioElement, crossfadeAudioElement]);
+  }, [audioElement, crossfadeAudioElement, webPlayer]);
 
   const toggleShuffle = useCallback(() => {
       setPlayer(prev => {
