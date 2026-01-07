@@ -16,7 +16,8 @@
     "music-metadata-browser": "^2.5.11",
     "process": "^0.11.10",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "react-player": "^3.4.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.1",

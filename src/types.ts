@@ -20,6 +20,9 @@ export interface Track {
   playCount?: number;
   lastPlayed?: number;
   isFavorite?: boolean;
+  // NEW: SoundCloud / Web Playback support
+  source?: 'local' | 'soundcloud';
+  externalUrl?: string;
 }
 
 export interface Playlist {
@@ -46,6 +49,8 @@ export interface PlayerState {
   automixEnabled: boolean;
   automixMode: 'classic' | 'smart' | 'shuffle'; // classic = normal crossfade, smart = beat match/key, shuffle = random compatible
   normalizationEnabled: boolean;
+  // NEW: Lyrics Offset
+  lyricOffset: number; // in milliseconds
 }
 
 export interface LibraryState {

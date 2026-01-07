@@ -1,0 +1,10 @@
+
+> music@0.0.0 dev
+> vite
+
+
+  VITE v6.4.1  ready in 313 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.0.2:3000/
+7:13:47 AM [vite] (client) hmr update /index.css?direct, /src/App.tsx

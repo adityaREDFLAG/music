@@ -3,6 +3,7 @@ import { dbService } from '../db';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { resumeAudioContext, getAudioContext } from './useAudioAnalyzer';
 import { getSmartNextTrack } from '../utils/automix';
+import ReactPlayer from 'react-player';
 
 export const useAudioPlayer = (
   libraryTracks: Record<string, Track>,
@@ -11,6 +12,7 @@ export const useAudioPlayer = (
   // --- STATE ---
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [crossfadeAudioElement, setCrossfadeAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [soundCloudPlayer, setSoundCloudPlayer] = useState<ReactPlayer | null>(null); // NEW: ReactPlayer instance
   
   const [player, setPlayer] = useState<PlayerState>({
     currentTrackId: null,
@@ -25,7 +27,8 @@ export const useAudioPlayer = (
     crossfadeDuration: 5,
     automixEnabled: false,
     automixMode: 'classic',
-    normalizationEnabled: false
+    normalizationEnabled: false,
+    lyricOffset: 0 // Default 0ms
   });
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -39,11 +42,12 @@ export const useAudioPlayer = (
   const isScrubbingRef = useRef(false);
   const wasPlayingBeforeScrubRef = useRef(false);
   const pendingSeekRef = useRef<number | null>(null);
-  // NEW: Store the calculated next track ID to ensure preloader and nextTrack() agree
   const upcomingTrackIdRef = useRef<string | null>(null);
-
-  // ✅ NEW: Locks UI updates during a click-to-seek action
   const isManualSeekingRef = useRef(false);
+
+  // Derive Active Source
+  const currentTrack = player.currentTrackId ? libraryTracks[player.currentTrackId] : null;
+  const isWebMode = currentTrack?.source === 'soundcloud';
 
   const saveState = useCallback((state: PlayerState) => {
     dbService.setSetting('playerState', state);
@@ -58,9 +62,7 @@ export const useAudioPlayer = (
     return newArray;
   };
 
-  // Helper to safely resume context only if needed
   const safeResumeContext = async () => {
-     // Check if context is suspended before trying to resume to avoid unnecessary operations
      const ctx = getAudioContext();
      if (ctx && ctx.state === 'suspended') {
          await resumeAudioContext().catch(() => {});
@@ -106,15 +108,19 @@ export const useAudioPlayer = (
              audioElement.volume = Math.max(0, Math.min(1, saved.volume));
         }
 
+        // Restore local blob if needed
         if (saved.currentTrackId) {
-             dbService.getAudioBlob(saved.currentTrackId).then(blob => {
-                 if (blob && audioElement) {
-                     if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
-                     const url = URL.createObjectURL(blob);
-                     currentUrlRef.current = url;
-                     audioElement.src = url;
-                 }
-             });
+             const track = libraryTracks[saved.currentTrackId];
+             if (track && track.source !== 'soundcloud') {
+                dbService.getAudioBlob(saved.currentTrackId).then(blob => {
+                    if (blob && audioElement) {
+                        if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
+                        const url = URL.createObjectURL(blob);
+                        currentUrlRef.current = url;
+                        audioElement.src = url;
+                    }
+                });
+             }
         }
       }
     });
@@ -133,7 +139,7 @@ export const useAudioPlayer = (
             crossfadeUrlRef.current = null;
         }
     };
-  }, [audioElement]);
+  }, [audioElement, libraryTracks]);
 
   useEffect(() => {
     saveState(player);
@@ -228,12 +234,23 @@ export const useAudioPlayer = (
   } = {}) => {
     const { immediate = true, fromQueue = false, customQueue } = options;
     
-    if (!audioElement) return;
+    // Check if new track is web based
+    const nextTrackDef = libraryTracks[trackId];
+    const isNextWeb = nextTrackDef?.source === 'soundcloud';
+
+    // Stop current playback engines before switching logic
+    if (audioElement && !audioElement.paused) {
+        audioElement.pause();
+    }
+    // We don't manually stop ReactPlayer here, we let state change handle it via prop
 
     let currentBlob: Blob | null = null;
-    if ((player.crossfadeEnabled || player.automixEnabled) && player.currentTrackId && immediate) {
+    if (!isNextWeb && (player.crossfadeEnabled || player.automixEnabled) && player.currentTrackId && immediate) {
         try {
-            currentBlob = await dbService.getAudioBlob(player.currentTrackId);
+            const currTrack = libraryTracks[player.currentTrackId];
+            if (currTrack && currTrack.source !== 'soundcloud') {
+                currentBlob = await dbService.getAudioBlob(player.currentTrackId);
+            }
         } catch (e) { console.warn("Could not fetch current blob for crossfade"); }
     }
 
@@ -273,10 +290,9 @@ export const useAudioPlayer = (
         }
 
         if (immediate) {
-             const track = libraryTracks[trackId];
-             if (track) {
-               updateMediaSession(track);
-               setDuration(track.duration);
+             if (nextTrackDef) {
+               updateMediaSession(nextTrackDef);
+               setDuration(nextTrackDef.duration || 0);
              }
         }
 
@@ -285,16 +301,29 @@ export const useAudioPlayer = (
           currentTrackId: trackId,
           queue: newQueue,
           originalQueue: newOriginalQueue,
-          isPlaying: true
+          isPlaying: true // Always start playing
         };
       });
 
       if (immediate) {
+        // --- WEB MODE ---
+        if (isNextWeb) {
+            // Logic handled by App.tsx rendering ReactPlayer with `playing=true`
+            // We just need to ensure audio element is stopped/cleared
+            if (audioElement) {
+                audioElement.pause();
+                audioElement.currentTime = 0;
+            }
+            setCurrentTime(0);
+            return;
+        }
+
+        // --- LOCAL MODE ---
+        if (!audioElement) return;
+
         // 1. TRY SYNC PLAYBACK FIRST (Critical for iOS)
         if (nextTrackUrlRef.current?.id === trackId) {
             const url = nextTrackUrlRef.current.url;
-
-            // Clear the ref so we don't revoke this URL later while it's playing
             nextTrackUrlRef.current = null;
 
             if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
@@ -305,18 +334,16 @@ export const useAudioPlayer = (
             setCurrentTime(0);
 
             try {
-                // This is now synchronous relative to the function start
                 await audioElement.play();
             } catch (err) {
                 console.error("Sync play failed", err);
                 setPlayer(p => ({ ...p, isPlaying: false }));
             }
-            // IMPORTANT: Clear the upcoming track ref as we are now playing it
             upcomingTrackIdRef.current = null;
-            return; // Exit early!
+            return;
         }
 
-        // 2. FALLBACK TO ASYNC (Only if preload failed)
+        // 2. FALLBACK TO ASYNC
         let nextBlob = await dbService.getAudioBlob(trackId) || undefined;
 
         if (nextBlob) {
@@ -352,6 +379,16 @@ export const useAudioPlayer = (
   }, [libraryTracks, updateMediaSession, audioElement, crossfadeAudioElement, player.crossfadeEnabled, player.automixEnabled, player.crossfadeDuration, player.currentTrackId, player.shuffle, player.queue]);
 
   const togglePlay = useCallback(async () => {
+    // WEB MODE
+    if (isWebMode) {
+        // ReactPlayer is controlled by `player.isPlaying` prop in App.tsx
+        // But we might need to manually resume context or something?
+        // Actually, just toggling state is enough for ReactPlayer prop
+        setPlayer(p => ({ ...p, isPlaying: !p.isPlaying }));
+        return;
+    }
+
+    // LOCAL MODE
     if (!audioElement) return;
 
     if (audioElement.paused) {
@@ -368,7 +405,7 @@ export const useAudioPlayer = (
         if (crossfadeAudioElement) crossfadeAudioElement.pause();
         setPlayer(p => ({ ...p, isPlaying: false }));
     }
-  }, [audioElement, crossfadeAudioElement]);
+  }, [audioElement, crossfadeAudioElement, isWebMode]);
 
   // Helper to determine the next track ID (deterministic)
   const calculateNextTrackId = useCallback((currentId: string | null, queue: string[], repeat: RepeatMode, automixEnabled: boolean, automixMode: string): string | null => {
@@ -404,7 +441,6 @@ export const useAudioPlayer = (
   const nextTrack = useCallback(() => {
      let nextId: string | null = upcomingTrackIdRef.current;
 
-     // Fallback if not calculated yet (shouldn't happen if useEffect works)
      if (!nextId) {
         nextId = calculateNextTrackId(player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode);
      }
@@ -415,8 +451,11 @@ export const useAudioPlayer = (
   }, [player, playTrack, calculateNextTrackId]);
 
   const prevTrack = useCallback(() => {
-      if (audioElement && audioElement.currentTime > 3) {
-          audioElement.currentTime = 0;
+      // Check current time from either engine
+      const currTime = isWebMode ? (soundCloudPlayer?.getCurrentTime() || 0) : (audioElement?.currentTime || 0);
+
+      if (currTime > 3) {
+          handleSeek(0);
           return;
       }
       
@@ -426,110 +465,120 @@ export const useAudioPlayer = (
       } else if (player.repeat === RepeatMode.ALL && player.queue.length > 0) {
           playTrack(player.queue[player.queue.length - 1], { immediate: true, fromQueue: true });
       }
-  }, [player.queue, player.currentTrackId, player.repeat, playTrack, audioElement]);
+  }, [player.queue, player.currentTrackId, player.repeat, playTrack, audioElement, isWebMode, soundCloudPlayer]);
 
   // --- SCRUBBING & SEEKING LOGIC ---
 
   const startScrub = useCallback(() => {
-    if (!audioElement) return;
     isScrubbingRef.current = true;
-    wasPlayingBeforeScrubRef.current = !audioElement.paused;
-    if (wasPlayingBeforeScrubRef.current) {
-        audioElement.pause();
+
+    if (isWebMode) {
+        wasPlayingBeforeScrubRef.current = player.isPlaying;
+        setPlayer(p => ({...p, isPlaying: false})); // Pause for scrub
+    } else if (audioElement) {
+        wasPlayingBeforeScrubRef.current = !audioElement.paused;
+        if (wasPlayingBeforeScrubRef.current) {
+            audioElement.pause();
+        }
     }
-  }, [audioElement]);
+  }, [audioElement, isWebMode, player.isPlaying]);
 
   const scrub = useCallback((time: number) => {
-    if (!audioElement) return;
-    let d = audioElement.duration;
-
-    if ((isNaN(d) || d === 0) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
+    let d = duration;
+    // Fallback if local duration is missing
+    if (!isWebMode && (isNaN(d) || d === 0) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
         d = libraryTracks[player.currentTrackId].duration;
     }
 
     const t = Math.max(0, Math.min(time, isNaN(d) ? 0 : d));
 
-    if (isNaN(t)) {
-        console.warn('[useAudioPlayer] scrub attempted with NaN time');
-        return;
-    }
+    if (isNaN(t)) return;
 
     setCurrentTime(t);
 
-    if (audioElement.readyState < 1) { 
-        pendingSeekRef.current = t;
-    } else {
-        audioElement.currentTime = t;
-        pendingSeekRef.current = null;
+    if (isWebMode) {
+         // ReactPlayer usually handles seek on release, but we update UI here
+    } else if (audioElement) {
+        if (audioElement.readyState < 1) {
+            pendingSeekRef.current = t;
+        } else {
+            audioElement.currentTime = t;
+            pendingSeekRef.current = null;
+        }
     }
 
     if ('mediaSession' in navigator && !isNaN(d) && isFinite(d)) {
         try {
             navigator.mediaSession.setPositionState({
                 duration: d,
-                playbackRate: audioElement.playbackRate,
+                playbackRate: 1,
                 position: t
             });
         } catch(e) {}
     }
-  }, [audioElement, player.currentTrackId, libraryTracks]);
+  }, [audioElement, player.currentTrackId, libraryTracks, duration, isWebMode]);
 
   const endScrub = useCallback(() => {
-    if (!audioElement) return;
     isScrubbingRef.current = false;
     if (wasPlayingBeforeScrubRef.current) {
-        audioElement.play().catch(console.error);
+        if (isWebMode) {
+            setPlayer(p => ({...p, isPlaying: true}));
+            soundCloudPlayer?.seekTo(currentTime);
+        } else if (audioElement) {
+            audioElement.play().catch(console.error);
+        }
+    } else if (isWebMode) {
+        soundCloudPlayer?.seekTo(currentTime);
     }
-  }, [audioElement]);
+  }, [audioElement, isWebMode, soundCloudPlayer, currentTime]);
 
   const handleSeek = useCallback((time: number) => {
-      if (!audioElement) return;
-
       // 1. Calculate and clamp valid time
-      let d = audioElement.duration;
-      // Fallback to metadata duration if available and element is not ready
-      if ((isNaN(d) || !isFinite(d)) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
+      let d = duration;
+      if (!isWebMode && (isNaN(d) || !isFinite(d)) && player.currentTrackId && libraryTracks[player.currentTrackId]) {
           d = libraryTracks[player.currentTrackId].duration;
       }
 
       const validDuration = (isNaN(d) || !isFinite(d)) ? 0 : d;
       const t = Math.max(0, Math.min(time, validDuration));
 
-      // 2. Optimistically update UI state immediately
+      // 2. Optimistically update UI state
       setCurrentTime(t);
 
-      // 3. iOS/Mobile Fix: If paused, briefly wake context (optional but helpful)
-      if (audioElement.paused && !wasPlayingBeforeScrubRef.current) {
-          safeResumeContext().catch(() => {});
+      // 3. Perform Seek
+      if (isWebMode) {
+          soundCloudPlayer?.seekTo(t);
+      } else if (audioElement) {
+           if (audioElement.paused && !wasPlayingBeforeScrubRef.current) {
+               safeResumeContext().catch(() => {});
+           }
+           if (Number.isFinite(t)) {
+               isManualSeekingRef.current = true;
+               audioElement.currentTime = t;
+           }
       }
 
-      // 4. THE FIX: Lock updates, then set time
-      if (Number.isFinite(t)) {
-          isManualSeekingRef.current = true;
-          audioElement.currentTime = t;
-      }
-
-      // 5. Reset other flags (DO NOT reset isManualSeekingRef here; wait for onSeeked)
+      // 5. Reset flags
       pendingSeekRef.current = null;
 
-      // 6. Update Lock Screen / Media Session
+      // 6. Update Lock Screen
       if ('mediaSession' in navigator && validDuration > 0) {
           try {
               navigator.mediaSession.setPositionState({
                   duration: validDuration,
-                  playbackRate: audioElement.playbackRate,
+                  playbackRate: 1,
                   position: t
               });
-          } catch (e) {
-              // Ignore temporary media session errors
-          }
+          } catch (e) {}
       }
-  }, [audioElement, player.currentTrackId, libraryTracks]);
+  }, [audioElement, player.currentTrackId, libraryTracks, duration, isWebMode, soundCloudPlayer]);
 
   const setVolume = useCallback((volume: number) => {
       const v = Math.max(0, Math.min(1, volume));
       if (audioElement) audioElement.volume = v;
       if (crossfadeAudioElement) crossfadeAudioElement.volume = v; 
+      // ReactPlayer volume is 0-1 as well? SoundCloud widget is 0-100?
+      // react-player standardizes to 0-1
       setPlayer(p => ({ ...p, volume: v }));
   }, [audioElement, crossfadeAudioElement]);
 
@@ -556,13 +605,12 @@ export const useAudioPlayer = (
       });
   }, []);
 
-  // ✅ FIX #2: RAF Loop for Smooth UI Updates (Foreground)
+  // RAF Loop for Local
   useEffect(() => {
-    if (!audioElement || !player.isPlaying) return;
+    if (!audioElement || !player.isPlaying || isWebMode) return;
 
     let rafId: number;
     const loop = () => {
-      // ✅ ADDED CHECK: && !isManualSeekingRef.current
       if (!audioElement.seeking && !isScrubbingRef.current && !isManualSeekingRef.current && audioElement.readyState >= 1) {
         setCurrentTime(audioElement.currentTime);
       }
@@ -571,30 +619,17 @@ export const useAudioPlayer = (
 
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [audioElement, player.isPlaying]);
+  }, [audioElement, player.isPlaying, isWebMode]);
 
 
-  // --- EVENT LISTENERS (Standard Logic + Background Updates) ---
+  // --- EVENT LISTENERS (Local) ---
   useEffect(() => {
       if (!audioElement) return;
 
       let lastTimeUpdateRef = 0;
       const TIME_UPDATE_THROTTLE = 100;
 
-      const updatePositionState = () => {
-          if ('mediaSession' in navigator && !isNaN(audioElement.duration)) {
-              try {
-                  navigator.mediaSession.setPositionState({
-                      duration: audioElement.duration,
-                      playbackRate: audioElement.playbackRate,
-                      position: audioElement.currentTime
-                  });
-              } catch (e) {}
-          }
-      };
-
       const onTimeUpdate = () => {
-          // ✅ ADDED CHECK: && !isManualSeekingRef.current
           if (!audioElement.seeking && !isScrubbingRef.current && !isManualSeekingRef.current) {
               const now = performance.now();
               if (now - lastTimeUpdateRef > TIME_UPDATE_THROTTLE) {
@@ -603,9 +638,6 @@ export const useAudioPlayer = (
               }
 
               const timeLeft = audioElement.duration - audioElement.currentTime;
-
-              // Slightly increased tolerance for crossfade check to account for background throttling
-              // But keep > 0 to prevent double trigger at end
               if ((player.crossfadeEnabled || player.automixEnabled) &&
                   !isTransitioningRef.current &&
                   !isAutoTriggeredRef.current &&
@@ -619,25 +651,14 @@ export const useAudioPlayer = (
       };
 
       const onSeeked = () => {
-          // ✅ UNLOCK UI UPDATES
           isManualSeekingRef.current = false;
-          
           setCurrentTime(audioElement.currentTime);
-          updatePositionState();
-      };
-
-      const onSeeking = () => {
-          // console.debug('[useAudioPlayer] seeking event', audioElement.currentTime);
       };
 
       const onDurationChange = () => {
          const d = audioElement.duration;
          setDuration(!isNaN(d) ? d : 0);
-         updatePositionState();
-
-         // Reset auto-trigger flag when a new track loads
          isAutoTriggeredRef.current = false;
-
          if (pendingSeekRef.current !== null) {
              audioElement.currentTime = pendingSeekRef.current;
              pendingSeekRef.current = null;
@@ -645,16 +666,13 @@ export const useAudioPlayer = (
       };
 
       const onEnded = () => {
-           isManualSeekingRef.current = false; // Safety check
-
-           // Increment Play Count
+           isManualSeekingRef.current = false;
            if (player.currentTrackId) {
              dbService.incrementPlayCount(player.currentTrackId).catch(console.error);
            }
-
            if (player.repeat === RepeatMode.ONE) {
                audioElement.currentTime = 0;
-               audioElement.play().catch(e => console.warn("Replay failed (interaction needed?)", e));
+               audioElement.play().catch(e => console.warn("Replay failed", e));
            } else {
                nextTrack();
            }
@@ -668,7 +686,6 @@ export const useAudioPlayer = (
 
       const onPlay = () => {
           setPlayer(p => ({ ...p, isPlaying: true }));
-          updatePositionState();
       };
 
       const onInterruptionEnd = () => {
@@ -682,16 +699,6 @@ export const useAudioPlayer = (
           }
       };
 
-      audioElement.addEventListener('timeupdate', onTimeUpdate);
-      audioElement.addEventListener('seeked', onSeeked);
-      audioElement.addEventListener('seeking', onSeeking);
-      audioElement.addEventListener('loadedmetadata', onDurationChange);
-      audioElement.addEventListener('ended', onEnded);
-      audioElement.addEventListener('pause', onPause);
-      audioElement.addEventListener('play', onPlay);
-      // iOS Interruption recovery
-      document.addEventListener('visibilitychange', onInterruptionEnd);
-
       const handleInterruption = () => {
         // If we were playing, try to resume logic or update state to Paused
         if (player.isPlaying && audioElement.paused) {
@@ -699,13 +706,26 @@ export const useAudioPlayer = (
         }
       };
 
-      // 'suspend' often fires on calls/alarms
+      // Only attach if NOT web mode or generally attach but check source?
+      // If web mode is active, we should ignore local events if they happen (e.g. crossfade element?)
+      // But crossfade element is separate.
+      // This is for the MAIN audio element.
+
+      audioElement.addEventListener('timeupdate', onTimeUpdate);
+      audioElement.addEventListener('seeked', onSeeked);
+      audioElement.addEventListener('loadedmetadata', onDurationChange);
+      audioElement.addEventListener('ended', onEnded);
+      audioElement.addEventListener('pause', onPause);
+      audioElement.addEventListener('play', onPlay);
+
+      // RESTORED: iOS Interruption recovery
+      document.addEventListener('visibilitychange', onInterruptionEnd);
+      // RESTORED: 'suspend' often fires on calls/alarms
       audioElement.addEventListener('suspend', handleInterruption);
 
       return () => {
           audioElement.removeEventListener('timeupdate', onTimeUpdate);
           audioElement.removeEventListener('seeked', onSeeked);
-          audioElement.removeEventListener('seeking', onSeeking);
           audioElement.removeEventListener('loadedmetadata', onDurationChange);
           audioElement.removeEventListener('ended', onEnded);
           audioElement.removeEventListener('pause', onPause);
@@ -713,16 +733,13 @@ export const useAudioPlayer = (
           document.removeEventListener('visibilitychange', onInterruptionEnd);
           audioElement.removeEventListener('suspend', handleInterruption);
       };
-  }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration, player.isPlaying]);
+  }, [nextTrack, player.repeat, audioElement, player.crossfadeEnabled, player.crossfadeDuration, player.isPlaying]); // removed isWebMode to prevent re-bind churn, logic handles web mode
 
-  // --- PRELOAD NEXT TRACK (SMART AUTOMIX AWARE) ---
+  // --- PRELOAD NEXT TRACK ---
   useEffect(() => {
-    // Determine what the next track WILL be, exactly matching nextTrack() logic
     const nextId = calculateNextTrackId(player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode);
-
     upcomingTrackIdRef.current = nextId;
 
-    // Cleanup old URL if it changed
     if (nextTrackUrlRef.current && nextTrackUrlRef.current.id !== nextId) {
         URL.revokeObjectURL(nextTrackUrlRef.current.url);
         nextTrackUrlRef.current = null;
@@ -731,17 +748,20 @@ export const useAudioPlayer = (
     if (nextTrackUrlRef.current?.id === nextId) return;
 
     if (nextId) {
-        dbService.getAudioBlob(nextId).then(blob => {
-            if (blob) {
-                // Create URL immediately during preload
-                const url = URL.createObjectURL(blob);
-                nextTrackUrlRef.current = { id: nextId, url };
-            }
-        });
+        // Only preload if next track is LOCAL
+        const nextTrack = libraryTracks[nextId];
+        if (nextTrack && nextTrack.source !== 'soundcloud') {
+            dbService.getAudioBlob(nextId).then(blob => {
+                if (blob) {
+                    const url = URL.createObjectURL(blob);
+                    nextTrackUrlRef.current = { id: nextId, url };
+                }
+            });
+        }
     }
-  }, [player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode, calculateNextTrackId]);
+  }, [player.currentTrackId, player.queue, player.repeat, player.automixEnabled, player.automixMode, calculateNextTrackId, libraryTracks]);
 
-  // ✅ FIX #1: Media Session
+  // --- RESTORED: Media Session ---
   useEffect(() => {
       if ('mediaSession' in navigator) {
           try {
@@ -765,10 +785,11 @@ export const useAudioPlayer = (
                   }
               });
               
-              navigator.mediaSession.playbackState = audioElement?.paused ? 'paused' : 'playing';
+              const isPaused = isWebMode ? !player.isPlaying : audioElement?.paused;
+              navigator.mediaSession.playbackState = isPaused ? 'paused' : 'playing';
           } catch (e) {}
       }
-  }, [togglePlay, prevTrack, nextTrack, handleSeek, audioElement?.paused]);
+  }, [togglePlay, prevTrack, nextTrack, handleSeek, audioElement?.paused, isWebMode, player.isPlaying]);
 
   useEffect(() => {
       const currentTrack = player.currentTrackId ? libraryTracks[player.currentTrackId] : null;
@@ -776,6 +797,28 @@ export const useAudioPlayer = (
           try { updateMediaSession(currentTrack); } catch (e) {}
       }
   }, [player.currentTrackId, libraryTracks, updateMediaSession]);
+
+
+  // --- WEB PLAYBACK CALLBACKS ---
+  // These will be passed to ReactPlayer in App.tsx
+  const onWebProgress = useCallback((state: { playedSeconds: number, loadedSeconds: number }) => {
+      if (!isScrubbingRef.current) {
+          setCurrentTime(state.playedSeconds);
+      }
+  }, []);
+
+  const onWebDuration = useCallback((d: number) => {
+      setDuration(d);
+  }, []);
+
+  const onWebEnded = useCallback(() => {
+      if (player.repeat === RepeatMode.ONE) {
+          // Loop
+          soundCloudPlayer?.seekTo(0);
+      } else {
+          nextTrack();
+      }
+  }, [player.repeat, nextTrack, soundCloudPlayer]);
 
   return {
     player,
@@ -793,6 +836,10 @@ export const useAudioPlayer = (
     setVolume,
     toggleShuffle,
     setAudioElement,
-    setCrossfadeAudioElement
+    setCrossfadeAudioElement,
+    setSoundCloudPlayer, // Exported setter
+    onWebProgress,
+    onWebDuration,
+    onWebEnded
   };
 };

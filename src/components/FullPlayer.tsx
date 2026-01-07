@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Mic2,
   Heart,
+  Globe, // Added icon
 } from 'lucide-react';
 import { Track, PlayerState, RepeatMode } from '../types';
 import { dbService } from '../db';
@@ -87,14 +88,12 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
 
   // Local state for the slider to ensure immediate feedback
-  // When scrubbing, this is the source of truth for the slider position
   const [localScrubValue, setLocalScrubValue] = useState<number | null>(null);
   const isScrubbing = localScrubValue !== null;
 
-  // Use props directly
   const { beat } = analyzerData || { beat: false };
 
-  // Memoize color values to prevent recalculation
+  // Memoize color values
   const colors = useMemo(() => ({
     primary: theme?.primary || '#ffffff',
     secondary: theme?.secondary || '#a1a1aa',
@@ -123,7 +122,7 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   const dragY = useMotionValue(0);
   const opacity = useTransform(dragY, [0, 200], [1, 0]);
 
-  // Display value: Use local value while scrubbing, otherwise global currentTime
+  // Display value
   const displayValue = isScrubbing ? localScrubValue : currentTime;
 
   // --- SCRUBBING HANDLERS ---
@@ -132,35 +131,25 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
   };
 
   const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
-      if (!isSeekable) return;
-      const value = Number((e.target as HTMLInputElement).value);
+      // Allow scrubbing even if duration is unknown for streams?
+      // SoundCloud streams might have duration. If 0, seekable is false.
+      if (!isSeekable && currentTrack?.source !== 'soundcloud') return;
 
-      // ONLY update the local UI state. Do NOT call scrub() or handleSeek() here.
+      const value = Number((e.target as HTMLInputElement).value);
       setLocalScrubValue(value);
   };
 
   const handleScrubEnd = () => {
-      // If we have a valid scrub value, commit it now
       if (localScrubValue !== null) {
           handleSeek(localScrubValue);
       }
-
-      // Clear local state so the UI goes back to following the player
       setLocalScrubValue(null);
-
-      // Resume playback logic if needed (handled by handleSeek mostly, but strictly reset flags)
       if (endScrub) endScrub();
   };
 
-  // Improved interaction handler to catch releases outside the slider
   const handleScrubInteractionStart = (e: React.PointerEvent<HTMLInputElement>) => {
       e.stopPropagation();
       handleScrubStart();
-
-      // Prevent scrolling on touch devices
-      if (e.pointerType === 'touch') {
-          // CSS touch-action: none is usually better, but this helps prevent propagation
-      }
 
       const onPointerUp = () => {
           handleScrubEnd();
@@ -217,7 +206,6 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
 
   if (!currentTrack) return null;
 
-  // Use memoized color values
   const { primary: primaryColor, secondary: secondaryColor, muted: mutedColor, background: backgroundColor } = colors;
 
   return (
@@ -293,6 +281,8 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                        onSeek={handleSeek}
                        onClose={() => setShowLyrics(false)}
                        onTrackUpdate={onTrackUpdate}
+                       lyricOffset={playerState.lyricOffset} // PASS OFFSET
+                       setLyricOffset={(o) => setPlayerState(p => ({...p, lyricOffset: o}))} // UPDATE
                      />
                   </motion.div>
                 ) : showQueue ? (
@@ -334,6 +324,14 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                       className="w-full h-full object-cover"
                       alt="Album Art"
                     />
+
+                    {/* WEB MODE BADGE */}
+                    {currentTrack.source === 'soundcloud' && (
+                        <div className="absolute top-4 right-4 bg-orange-500/90 text-white p-2 rounded-full shadow-lg backdrop-blur-sm z-10">
+                            <Globe size={20} />
+                        </div>
+                    )}
+
                     {/* Beat Glow Flash */}
                     <motion.div
                         style={{ opacity: glowOpacity, background: primaryColor }}
@@ -406,10 +404,10 @@ const FullPlayer: React.FC<FullPlayerProps> = ({
                     max={safeDuration}
                     step={0.1} // High resolution for smooth dragging
                     value={displayValue}
-                    disabled={!isSeekable}
+                    disabled={!isSeekable && currentTrack.source !== 'soundcloud'}
                     onChange={handleScrubChange}
-                    onPointerDown={(e) => isSeekable && handleScrubInteractionStart(e)}
-                    className={`absolute -inset-x-0 -top-2.5 w-full h-8 opacity-0 z-50 ${isSeekable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                    onPointerDown={(e) => (isSeekable || currentTrack.source === 'soundcloud') && handleScrubInteractionStart(e)}
+                    className={`absolute -inset-x-0 -top-2.5 w-full h-8 opacity-0 z-50 ${isSeekable || currentTrack.source === 'soundcloud' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                     style={{ pointerEvents: 'auto', bottom: '-8px', touchAction: 'none' }}
                   />
 

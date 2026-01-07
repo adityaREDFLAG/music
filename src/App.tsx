@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus } from 'lucide-react';
 import JSZip from 'jszip';
+import ReactPlayer from 'react-player'; // IMPORTED
 import { dbService } from './db';
 import { Track, LibraryState, RepeatMode } from './types';
 import { useMetadata } from './hooks/useMetadata';
@@ -16,7 +17,7 @@ import MiniPlayer from './components/MiniPlayer';
 import FullPlayer from './components/FullPlayer';
 import { Layout } from './components/Layout';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
-import { useAudioAnalyzer } from './hooks/useAudioAnalyzer'; // IMPORTED HERE
+import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import { ToastProvider, useToast } from './components/Toast';
 
 type LibraryTab = 'Songs' | 'Albums' | 'Artists' | 'Playlists';
@@ -86,12 +87,14 @@ function MusicApp() {
     setVolume,
     toggleShuffle,
     playTrack,
-    setAudioElement, // Exposed from useAudioPlayer
-    setCrossfadeAudioElement
+    setAudioElement,
+    setCrossfadeAudioElement,
+    setSoundCloudPlayer, // NEW
+    onWebProgress, // NEW
+    onWebDuration, // NEW
+    onWebEnded // NEW
   } = useAudioPlayer(library.tracks, updateMediaSession);
 
-  // We need to access the actual audio element ref here to pass to the analyzer
-  // But setAudioElement is a callback ref. We can wrap it.
   const [audioElementNode, setAudioElementNode] = useState<HTMLAudioElement | null>(null);
   const setAudioRef = useCallback((node: HTMLAudioElement | null) => {
       setAudioElement(node);
@@ -102,7 +105,6 @@ function MusicApp() {
       setCrossfadeAudioElement(node);
   }, [setCrossfadeAudioElement]);
 
-  // ANALYZER MOVED TO APP LEVEL
   const analyzerData = useAudioAnalyzer(audioElementNode, player.isPlaying);
 
   // Queue Management
@@ -133,6 +135,41 @@ function MusicApp() {
       return () => window.removeEventListener('update-player-settings', handleSettingsUpdate);
   }, [setPlayer]);
 
+  // Handle Add Web Track Event
+  useEffect(() => {
+      const handleAddWebTrack = async (e: Event) => {
+          const detail = (e as CustomEvent).detail;
+          if (detail && detail.url) {
+              // Create a temporary track
+              // In a real app, we might want to fetch metadata from OEmbed first.
+              // For now, we use a placeholder and rely on ReactPlayer to maybe give us info?
+              // Or just use generic info.
+
+              const id = crypto.randomUUID();
+              const newTrack: Track = {
+                  id,
+                  title: 'SoundCloud Stream',
+                  artist: 'SoundCloud',
+                  album: 'Web',
+                  duration: 0, // Unknown initially
+                  addedAt: Date.now(),
+                  source: 'soundcloud',
+                  externalUrl: detail.url,
+                  coverArt: 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?q=80&w=512' // SoundCloud orange-ish placeholder
+              };
+
+              // Save to DB so it persists and is in library
+              await dbService.saveTrack(newTrack, new Blob([])); // Empty blob for web tracks
+              await refreshLibrary();
+
+              // Play it
+              playTrack(id, { immediate: true });
+          }
+      };
+      window.addEventListener('add-web-track', handleAddWebTrack);
+      return () => window.removeEventListener('add-web-track', handleAddWebTrack);
+  }, [refreshLibrary, playTrack]);
+
   // --- DERIVED STATE ---
 
   const currentTrack = useMemo(() => 
@@ -153,7 +190,6 @@ function MusicApp() {
       extractDominantColor(currentTrack.coverArt).then(palette => {
         if (palette) {
           setTheme(palette);
-          // Set global CSS variable for other components if needed
           const rgb = palette.primary.match(/\d+, \d+, \d+/)?.[0];
           if (rgb) {
               document.documentElement.style.setProperty('--color-primary', rgb);
@@ -165,7 +201,6 @@ function MusicApp() {
 
   useEffect(() => {
     if (theme?.background) {
-      // Update theme-color meta tag for mobile browsers
       let metaThemeColor = document.querySelector("meta[name='theme-color']");
       if (!metaThemeColor) {
         metaThemeColor = document.createElement('meta');
@@ -322,7 +357,6 @@ function MusicApp() {
 
   return (
     <>
-      {/* 2. THE BACKGROUND PLAY FIX: Render Audio Element Here */}
       <audio 
         ref={setAudioRef}
         playsInline
@@ -333,7 +367,6 @@ function MusicApp() {
         data-not-lazy="true"
         onError={(e) => console.error("Audio tag error:", e)}
         onPlayingCapture={() => {
-          // Resume audio context on user interaction
           if (typeof window !== 'undefined' && window.AudioContext) {
             const ctx = (window as any).audioContext;
             if (ctx && ctx.state === 'suspended') {
@@ -342,15 +375,44 @@ function MusicApp() {
           }
         }}
       />
-      {/* SECONDARY AUDIO FOR CROSSFADE */}
       <audio
         ref={setCrossfadeAudioRef}
         playsInline
         crossOrigin="anonymous"
         preload="auto"
         controlsList="nodownload"
-        className="hidden" // Helper audio, never shown
+        className="hidden"
       />
+
+      {/* WEB PLAYER: SoundCloud */}
+      {currentTrack?.source === 'soundcloud' && (
+          <div className="hidden">
+             <ReactPlayer
+                ref={setSoundCloudPlayer}
+                url={currentTrack.externalUrl}
+                playing={player.isPlaying}
+                volume={player.volume}
+                onProgress={onWebProgress}
+                onDuration={onWebDuration}
+                onEnded={onWebEnded}
+                config={{
+                    soundcloud: {
+                        options: {
+                            visual: false, // Save bandwidth
+                            buying: false,
+                            liking: false,
+                            download: false,
+                            sharing: false,
+                            show_artwork: false,
+                            show_comments: false,
+                            show_playcount: false,
+                            show_user: false
+                        }
+                    }
+                }}
+             />
+          </div>
+      )}
 
       <Layout 
         activeTab={activeTab} 
@@ -405,7 +467,6 @@ function MusicApp() {
         </main>
       </Layout>
 
-      {/* OVERLAYS */}
       <AnimatePresence>
         {isDragging && (
           <motion.div
@@ -459,7 +520,7 @@ function MusicApp() {
         toggleShuffle={toggleShuffle}
         onRemoveTrack={handleRemoveFromQueue}
         onTrackUpdate={handleTrackUpdate}
-        analyzerData={analyzerData} // Pass analyzer data
+        analyzerData={analyzerData}
       />
     </>
   );

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { fetchLyrics } from '../utils/lyrics';
 import { Track, Lyrics } from '../types';
-import { Loader2, Music2, Sparkles } from 'lucide-react';
+import { Loader2, Music2, Sparkles, ChevronUp, ChevronDown } from 'lucide-react';
 import { useToast } from './Toast';
 
 interface LyricsViewProps {
@@ -11,18 +11,49 @@ interface LyricsViewProps {
   onSeek: (time: number) => void;
   onClose?: () => void;
   onTrackUpdate?: (track: Track) => void;
+  lyricOffset?: number; // Passed from parent or handled locally
+  setLyricOffset?: (offset: number) => void;
 }
 
-const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onTrackUpdate }) => {
+const LyricsView: React.FC<LyricsViewProps> = ({
+    track,
+    currentTime: rawCurrentTime,
+    onSeek,
+    onTrackUpdate,
+    lyricOffset = 0,
+    setLyricOffset
+}) => {
   const [lyrics, setLyrics] = useState<Lyrics | null>(track.lyrics || null);
   const [loading, setLoading] = useState(false);
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [localOffset, setLocalOffset] = useState(lyricOffset);
+
+  // Use local offset + raw time
+  const currentTime = rawCurrentTime + (localOffset / 1000);
 
   const { addToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync prop offset
+  useEffect(() => {
+      setLocalOffset(lyricOffset);
+  }, [lyricOffset]);
+
+  const updateOffset = (delta: number) => {
+      const newOffset = localOffset + delta;
+      setLocalOffset(newOffset);
+      if (setLyricOffset) setLyricOffset(newOffset);
+
+      // Persist via custom event bridge to App/Player
+      // Or we can rely on parent passing `setLyricOffset` which updates player state
+      // We will emit the custom event for `update-player-settings` to ensure it saves
+      window.dispatchEvent(new CustomEvent('update-player-settings', {
+          detail: { lyricOffset: newOffset }
+      }));
+  };
 
   // Fetch Lyrics
   useEffect(() => {
@@ -170,10 +201,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                 const isActive = i === activeLineIndex;
                 const isPast = i < activeLineIndex;
                 
-                // ----------------------------------------------------
-                // FIX: Detect if line is long (> 10 words)
-                // This prevents vertical filling by reducing font size for dense lines
-                // ----------------------------------------------------
                 const wordCount = line.words ? line.words.length : line.text.split(' ').length;
                 const isLongLine = wordCount > 10;
                 
@@ -183,7 +210,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         <motion.div
                             key={i}
                             layout
-                            onClick={() => onSeek(line.time)}
+                            onClick={() => onSeek(line.time - (localOffset/1000))} // Reverse offset for seek
                             initial={{ opacity: 0.5, scale: 0.95 }}
                             animate={{
                                 scale: isActive ? 1 : 0.95,
@@ -194,13 +221,10 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                             transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
                             className="cursor-pointer origin-left will-change-transform"
                         >
-                             {/* Applied Logic: 
-                                 If isLongLine is true, we use text-2xl/3xl instead of text-3xl/4xl 
-                             */}
                              <p className={`font-bold leading-tight flex flex-wrap gap-x-[0.35em] gap-y-1 ${
                                 isLongLine 
-                                  ? 'text-2xl md:text-3xl' // Smaller text for long lines
-                                  : 'text-3xl md:text-4xl' // Standard large text for short lines
+                                  ? 'text-2xl md:text-3xl'
+                                  : 'text-3xl md:text-4xl'
                              }`}>
                                {line.words.map((word, wIdx) => {
                                    const nextWordTime = word.endTime ?? line.words![wIdx + 1]?.time ?? Infinity;
@@ -255,7 +279,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                     <motion.div
                         key={i}
                         layout
-                        onClick={() => onSeek(line.time)}
+                        onClick={() => onSeek(line.time - (localOffset/1000))}
                         initial={{ opacity: 0.5, scale: 0.95 }}
                         animate={{
                             scale: isActive ? 1 : 0.95,
@@ -266,7 +290,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
                         transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
                         className="cursor-pointer origin-left will-change-transform"
                     >
-                         {/* Applied Logic here as well for consistency */}
                          <p className={`font-bold leading-tight ${isActive ? 'drop-shadow-lg' : ''} ${
                             isLongLine 
                                 ? 'text-2xl md:text-3xl' 
@@ -294,7 +317,14 @@ const LyricsView: React.FC<LyricsViewProps> = ({ track, currentTime, onSeek, onT
         exit={{ opacity: 0 }}
         className="absolute inset-0 z-20 flex flex-col bg-black/60 backdrop-blur-2xl rounded-t-3xl md:rounded-2xl overflow-hidden"
     >
-      <div className="absolute top-6 right-6 z-50">
+      <div className="absolute top-6 right-6 z-50 flex items-center gap-2">
+        {/* Offset Controls */}
+        <div className="flex items-center gap-1 bg-white/10 rounded-full px-2 py-1 mr-2 backdrop-blur-md">
+            <button onClick={() => updateOffset(-100)} className="p-1 hover:text-white text-white/60"><ChevronDown size={14}/></button>
+            <span className="text-xs font-mono w-12 text-center text-white/80">{localOffset > 0 ? '+' : ''}{localOffset}ms</span>
+            <button onClick={() => updateOffset(100)} className="p-1 hover:text-white text-white/60"><ChevronUp size={14}/></button>
+        </div>
+
         <button
            onClick={handleGenerateWordSync}
            className="p-3 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all hover:scale-105 active:scale-95"
