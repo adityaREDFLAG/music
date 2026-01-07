@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, Search as SearchIcon, X, Disc, Globe, PlayCircle } from 'lucide-react';
+import { Music, Search as SearchIcon, X, Disc, Globe, PlayCircle, Youtube } from 'lucide-react';
 import { Track } from '../types';
-import { searchSoundCloud, SoundCloudTrack, formatArtworkUrl } from '../utils/soundcloud';
+import { searchYouTube, YouTubeTrack } from '../utils/youtube';
 
 interface SearchProps {
   activeTab: string;
@@ -10,7 +10,7 @@ interface SearchProps {
   setSearchQuery: (query: string) => void;
   filteredTracks: Track[];
   playTrack: (id: string, options?: { customQueue: string[] }) => void;
-  onAddWebTrack?: (url: string, metadata?: SoundCloudTrack) => void;
+  onAddWebTrack?: (url: string, metadata?: YouTubeTrack) => void;
 }
 
 const Search: React.FC<SearchProps> = ({ 
@@ -23,7 +23,7 @@ const Search: React.FC<SearchProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isWebMode, setIsWebMode] = useState(false);
-  const [webTracks, setWebTracks] = useState<SoundCloudTrack[]>([]);
+  const [webTracks, setWebTracks] = useState<YouTubeTrack[]>([]);
   const [isSearchingWeb, setIsSearchingWeb] = useState(false);
 
   // Auto-focus input when tab becomes active
@@ -47,21 +47,21 @@ const Search: React.FC<SearchProps> = ({
     playTrack(trackId, { customQueue: queue });
   }, [filteredTracks, playTrack]);
 
-  // Detect SoundCloud URL
-  const isSoundCloudUrl = (url: string) => {
-    return url.match(/^https?:\/\/(soundcloud\.com|snd\.sc)\/(.*)$/);
+  // Detect YouTube URL
+  const isYouTubeUrl = (url: string) => {
+    return url.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/);
   };
 
-  // SoundCloud Search Effect
+  // YouTube Search Effect
   useEffect(() => {
-    if (!isWebMode || !searchQuery || isSoundCloudUrl(searchQuery)) {
+    if (!isWebMode || !searchQuery || isYouTubeUrl(searchQuery)) {
         setWebTracks([]);
         return;
     }
 
     const timer = setTimeout(async () => {
         setIsSearchingWeb(true);
-        const results = await searchSoundCloud(searchQuery);
+        const results = await searchYouTube(searchQuery);
         setWebTracks(results);
         setIsSearchingWeb(false);
     }, 500); // 500ms debounce
@@ -70,14 +70,14 @@ const Search: React.FC<SearchProps> = ({
   }, [searchQuery, isWebMode]);
 
 
-  const handleWebPlay = (url: string, metadata?: SoundCloudTrack) => {
+  const handleWebPlay = (url: string, metadata?: YouTubeTrack) => {
     if (onAddWebTrack) {
         onAddWebTrack(url, metadata);
     }
     if (!metadata) setSearchQuery(''); // Clear if direct URL paste
   };
 
-  const showWebInputResult = isSoundCloudUrl(searchQuery);
+  const showWebInputResult = isYouTubeUrl(searchQuery);
 
   return (
     <motion.div 
@@ -97,7 +97,7 @@ const Search: React.FC<SearchProps> = ({
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isWebMode ? "Paste SoundCloud URL..." : "Find your frequency..."}
+                placeholder={isWebMode ? "Paste YouTube URL..." : "Find your frequency..."}
                 className="flex-1 bg-transparent text-body-large text-surface-on placeholder:text-surface-on-variant/50 outline-none"
                 style={{ fontSize: '16px' }} // Prevent iOS zoom
             />
@@ -127,10 +127,10 @@ const Search: React.FC<SearchProps> = ({
                         setWebTracks([]);
                     }}
                     className={`text-xs font-medium px-3 py-1 rounded-full transition-colors ${
-                        isWebMode ? 'bg-orange-500/20 text-orange-500' : 'text-surface-on-variant hover:text-surface-on'
+                        isWebMode ? 'bg-red-500/20 text-red-500' : 'text-surface-on-variant hover:text-surface-on'
                     }`}
                 >
-                    {isWebMode ? 'SoundCloud Search Active' : 'Switch to SoundCloud'}
+                    {isWebMode ? 'YouTube Search Active' : 'Switch to YouTube'}
                 </button>
             </div>
         </div>
@@ -147,28 +147,28 @@ const Search: React.FC<SearchProps> = ({
                  animate={{ opacity: 1, y: 0 }}
                  exit={{ opacity: 0, height: 0 }}
                  onClick={() => handleWebPlay(searchQuery)}
-                 className="mx-2 mb-4 p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-orange-600/10 border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-colors group"
+                 className="mx-2 mb-4 p-4 rounded-xl bg-gradient-to-r from-red-500/10 to-red-600/10 border border-red-500/20 cursor-pointer hover:bg-red-500/20 transition-colors group"
                >
                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-500 group-hover:scale-110 transition-transform">
-                        <Globe size={24} />
+                    <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-500 group-hover:scale-110 transition-transform">
+                        <Youtube size={24} />
                     </div>
                     <div className="flex-1">
-                        <h4 className="text-body-large font-bold text-orange-100">Play from Web</h4>
-                        <p className="text-body-small text-orange-200/60 truncate">{searchQuery}</p>
+                        <h4 className="text-body-large font-bold text-red-100">Play from YouTube</h4>
+                        <p className="text-body-small text-red-200/60 truncate">{searchQuery}</p>
                     </div>
-                    <PlayCircle className="text-orange-500 w-8 h-8 opacity-50 group-hover:opacity-100 transition-opacity" />
+                    <PlayCircle className="text-red-500 w-8 h-8 opacity-50 group-hover:opacity-100 transition-opacity" />
                  </div>
                </motion.div>
             )}
         </AnimatePresence>
 
-        {/* SoundCloud Results */}
+        {/* YouTube Results */}
         {isWebMode && (
             <AnimatePresence mode='popLayout'>
                 {isSearchingWeb && (
                     <div className="flex justify-center py-8">
-                        <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                        <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
                     </div>
                 )}
                 {webTracks.map(t => (
@@ -179,30 +179,30 @@ const Search: React.FC<SearchProps> = ({
                         exit={{ opacity: 0, scale: 0.95 }}
                         key={t.id}
                         whileTap={{ scale: 0.98, backgroundColor: 'var(--surface-container-highest)' }}
-                        onClick={() => handleWebPlay(t.permalink_url, t)}
+                        onClick={() => handleWebPlay(t.url, t)}
                         className="group flex items-center gap-4 p-2 pr-4 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors active:scale-[0.98]"
                     >
                         <div className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm relative">
-                            {t.artwork_url || t.user.avatar_url ? (
-                                <img src={formatArtworkUrl(t.artwork_url || t.user.avatar_url) || ''} alt={t.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                            {t.thumbnail ? (
+                                <img src={t.thumbnail} alt={t.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
                             ) : (
-                                <Globe className="w-6 h-6 text-orange-500/50" />
+                                <Globe className="w-6 h-6 text-red-500/50" />
                             )}
                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <div className="bg-orange-500 text-white p-1.5 rounded-full">
+                                <div className="bg-red-500 text-white p-1.5 rounded-full">
                                     <PlayCircle className="w-4 h-4" />
                                 </div>
                             </div>
                         </div>
                         <div className="flex-1 min-w-0">
-                            <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-orange-500 transition-colors flex items-center gap-2">
+                            <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-red-500 transition-colors flex items-center gap-2">
                                 {t.title}
                             </h4>
                             <p className="text-body-medium text-surface-on-variant truncate">
-                                {t.user.username}
+                                {t.channel}
                             </p>
                         </div>
-                        <span className="text-[10px] bg-orange-500/10 text-orange-500 px-1.5 py-0.5 rounded border border-orange-500/20">SoundCloud</span>
+                        <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20">YouTube</span>
                     </motion.div>
                 ))}
             </AnimatePresence>
@@ -241,8 +241,8 @@ const Search: React.FC<SearchProps> = ({
                 <div className="flex-1 min-w-0">
                     <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-primary transition-colors flex items-center gap-2">
                     {t.title}
-                    {t.source === 'soundcloud' && (
-                        <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30">WEB</span>
+                    {t.source === 'youtube' && (
+                        <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">WEB</span>
                     )}
                     </h4>
                     <p className="text-body-medium text-surface-on-variant truncate">

@@ -8,6 +8,7 @@ import { Track, LibraryState, RepeatMode } from './types';
 import { useMetadata } from './hooks/useMetadata';
 import { parseTrackMetadata } from './utils/metadata';
 import { extractDominantColor, ThemePalette } from './utils/colors';
+import { YouTubeTrack } from './utils/youtube';
 import LoadingOverlay from './components/LoadingOverlay';
 import Home from './components/Home';
 import Library from './components/Library';
@@ -89,7 +90,7 @@ function MusicApp() {
     playTrack,
     setAudioElement,
     setCrossfadeAudioElement,
-    setSoundCloudPlayer, // NEW
+    setWebPlayer, // NEW
     onWebProgress, // NEW
     onWebDuration, // NEW
     onWebEnded // NEW
@@ -135,23 +136,21 @@ function MusicApp() {
       return () => window.removeEventListener('update-player-settings', handleSettingsUpdate);
   }, [setPlayer]);
 
-  const handleAddWebTrack = useCallback(async (url: string, metadata?: any) => {
+  const handleAddWebTrack = useCallback(async (url: string, metadata?: YouTubeTrack) => {
       // Create a temporary track
       const id = crypto.randomUUID();
 
       const newTrack: Track = {
           id,
-          title: metadata ? metadata.title : 'SoundCloud Stream',
-          artist: metadata ? metadata.user.username : 'SoundCloud',
+          title: metadata ? metadata.title : 'YouTube Stream',
+          artist: metadata ? metadata.channel : 'YouTube',
           album: 'Web',
-          duration: metadata ? metadata.duration / 1000 : 0, // Convert ms to s
+          duration: metadata ? metadata.duration : 0, // already in seconds
           addedAt: Date.now(),
-          source: 'soundcloud',
+          source: 'youtube',
           externalUrl: url,
           // Use formatted artwork or fallback
-          coverArt: metadata && (metadata.artwork_url || metadata.user.avatar_url)
-              ? (metadata.artwork_url || metadata.user.avatar_url).replace('large', 't500x500')
-              : 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?q=80&w=512'
+          coverArt: metadata ? metadata.thumbnail : 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?q=80&w=512'
       };
 
       // Save to DB so it persists and is in library
@@ -376,11 +375,12 @@ function MusicApp() {
         className="hidden"
       />
 
-      {/* WEB PLAYER: SoundCloud */}
-      {currentTrack?.source === 'soundcloud' && (
-          <div className="hidden">
+      {/* WEB PLAYER: YouTube */}
+      {currentTrack?.source === 'youtube' && (
+          // Avoid display:none to prevent browser throttling/pausing
+          <div className="absolute top-[-9999px] left-[-9999px] opacity-0 pointer-events-none">
              <ReactPlayer
-                ref={setSoundCloudPlayer as any}
+                ref={setWebPlayer as any}
                 url={currentTrack.externalUrl}
                 playing={player.isPlaying}
                 volume={player.volume}
@@ -388,17 +388,16 @@ function MusicApp() {
                 onDuration={onWebDuration}
                 onEnded={onWebEnded}
                 config={{
-                    soundcloud: {
-                        options: {
-                            visual: false, // Save bandwidth
-                            buying: false,
-                            liking: false,
-                            download: false,
-                            sharing: false,
-                            show_artwork: false,
-                            show_comments: false,
-                            show_playcount: false,
-                            show_user: false
+                    youtube: {
+                        playerVars: {
+                            controls: 0,
+                            disablekb: 1,
+                            fs: 0,
+                            iv_load_policy: 3,
+                            modestbranding: 1,
+                            playsinline: 1,
+                            rel: 0,
+                            showinfo: 0
                         }
                     }
                 } as any}
