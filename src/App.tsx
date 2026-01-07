@@ -135,39 +135,31 @@ function MusicApp() {
       return () => window.removeEventListener('update-player-settings', handleSettingsUpdate);
   }, [setPlayer]);
 
-  // Handle Add Web Track Event
-  useEffect(() => {
-      const handleAddWebTrack = async (e: Event) => {
-          const detail = (e as CustomEvent).detail;
-          if (detail && detail.url) {
-              // Create a temporary track
-              // In a real app, we might want to fetch metadata from OEmbed first.
-              // For now, we use a placeholder and rely on ReactPlayer to maybe give us info?
-              // Or just use generic info.
+  const handleAddWebTrack = useCallback(async (url: string, metadata?: any) => {
+      // Create a temporary track
+      const id = crypto.randomUUID();
 
-              const id = crypto.randomUUID();
-              const newTrack: Track = {
-                  id,
-                  title: 'SoundCloud Stream',
-                  artist: 'SoundCloud',
-                  album: 'Web',
-                  duration: 0, // Unknown initially
-                  addedAt: Date.now(),
-                  source: 'soundcloud',
-                  externalUrl: detail.url,
-                  coverArt: 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?q=80&w=512' // SoundCloud orange-ish placeholder
-              };
-
-              // Save to DB so it persists and is in library
-              await dbService.saveTrack(newTrack, new Blob([])); // Empty blob for web tracks
-              await refreshLibrary();
-
-              // Play it
-              playTrack(id, { immediate: true });
-          }
+      const newTrack: Track = {
+          id,
+          title: metadata ? metadata.title : 'SoundCloud Stream',
+          artist: metadata ? metadata.user.username : 'SoundCloud',
+          album: 'Web',
+          duration: metadata ? metadata.duration / 1000 : 0, // Convert ms to s
+          addedAt: Date.now(),
+          source: 'soundcloud',
+          externalUrl: url,
+          // Use formatted artwork or fallback
+          coverArt: metadata && (metadata.artwork_url || metadata.user.avatar_url)
+              ? (metadata.artwork_url || metadata.user.avatar_url).replace('large', 't500x500')
+              : 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?q=80&w=512'
       };
-      window.addEventListener('add-web-track', handleAddWebTrack);
-      return () => window.removeEventListener('add-web-track', handleAddWebTrack);
+
+      // Save to DB so it persists and is in library
+      await dbService.saveTrack(newTrack, new Blob([])); // Empty blob for web tracks
+      await refreshLibrary();
+
+      // Play it
+      playTrack(id, { immediate: true });
   }, [refreshLibrary, playTrack]);
 
   // --- DERIVED STATE ---
@@ -388,11 +380,11 @@ function MusicApp() {
       {currentTrack?.source === 'soundcloud' && (
           <div className="hidden">
              <ReactPlayer
-                ref={setSoundCloudPlayer}
+                ref={setSoundCloudPlayer as any}
                 url={currentTrack.externalUrl}
                 playing={player.isPlaying}
                 volume={player.volume}
-                onProgress={onWebProgress}
+                onProgress={onWebProgress as any}
                 onDuration={onWebDuration}
                 onEnded={onWebEnded}
                 config={{
@@ -409,7 +401,7 @@ function MusicApp() {
                             show_user: false
                         }
                     }
-                }}
+                } as any}
              />
           </div>
       )}
@@ -439,7 +431,7 @@ function MusicApp() {
                 key="library"
                 activeTab={activeTab}
                 libraryTab={libraryTab} 
-                setLibraryTab={setLibraryTab}
+                setLibraryTab={setLibraryTab as any}
                 filteredTracks={filteredTracks}
                 playerState={player}
                 setPlayerState={setPlayer}
@@ -455,6 +447,7 @@ function MusicApp() {
                 setSearchQuery={setSearchQuery}
                 filteredTracks={filteredTracks}
                 playTrack={playTrack}
+                onAddWebTrack={handleAddWebTrack}
               />
             )}
             {activeTab === 'stats' && (

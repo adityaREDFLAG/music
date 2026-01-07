@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Music, Search as SearchIcon, X, Disc, Globe, PlayCircle } from 'lucide-react';
 import { Track } from '../types';
+import { searchSoundCloud, SoundCloudTrack, formatArtworkUrl } from '../utils/soundcloud';
 
 interface SearchProps {
   activeTab: string;
@@ -9,6 +10,7 @@ interface SearchProps {
   setSearchQuery: (query: string) => void;
   filteredTracks: Track[];
   playTrack: (id: string, options?: { customQueue: string[] }) => void;
+  onAddWebTrack?: (url: string, metadata?: SoundCloudTrack) => void;
 }
 
 const Search: React.FC<SearchProps> = ({ 
@@ -16,10 +18,13 @@ const Search: React.FC<SearchProps> = ({
   searchQuery, 
   setSearchQuery, 
   filteredTracks, 
-  playTrack 
+  playTrack,
+  onAddWebTrack
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isWebMode, setIsWebMode] = useState(false);
+  const [webTracks, setWebTracks] = useState<SoundCloudTrack[]>([]);
+  const [isSearchingWeb, setIsSearchingWeb] = useState(false);
 
   // Auto-focus input when tab becomes active
   useEffect(() => {
@@ -47,35 +52,32 @@ const Search: React.FC<SearchProps> = ({
     return url.match(/^https?:\/\/(soundcloud\.com|snd\.sc)\/(.*)$/);
   };
 
-  const handleWebPlay = () => {
-    // We can't really "play" it immediately without creating a track object first.
-    // However, playTrack expects an ID that exists in the library OR we need to handle ad-hoc tracks.
-    // Since the current architecture requires tracks to be in the library/queue,
-    // we should create a temporary "Web Track" and add it to the library or handle it.
-    // BUT: The app is built around `libraryTracks` and IndexedDB.
-    // For now, we will assume we need to add it to the library as a "Web Track".
-    // Or we can modify `playTrack` or `App.tsx` to handle ephemeral tracks?
-    // Let's create a "virtual" track ID and pass it?
-    // Wait, `playTrack` takes an ID and looks it up in `libraryTracks`.
-    // So we must add it to the library first.
-    // This requires `dbService.saveTrack` but we don't have metadata yet.
-    // WE CAN USE A HACK: Pass a special ID and have `App` or `useAudioPlayer` handle it?
-    // No, `useAudioPlayer` looks up `libraryTracks[id]`.
+  // SoundCloud Search Effect
+  useEffect(() => {
+    if (!isWebMode || !searchQuery || isSoundCloudUrl(searchQuery)) {
+        setWebTracks([]);
+        return;
+    }
 
-    // Better: Trigger a "Import from URL" flow.
-    // Since we are in Search, we can just call an import function if we had one.
-    // Let's dispatch a custom event for App.tsx to handle adding the web track.
+    const timer = setTimeout(async () => {
+        setIsSearchingWeb(true);
+        const results = await searchSoundCloud(searchQuery);
+        setWebTracks(results);
+        setIsSearchingWeb(false);
+    }, 500); // 500ms debounce
 
-    if (!searchQuery) return;
+    return () => clearTimeout(timer);
+  }, [searchQuery, isWebMode]);
 
-    const evt = new CustomEvent('add-web-track', {
-        detail: { url: searchQuery }
-    });
-    window.dispatchEvent(evt);
-    setSearchQuery('');
+
+  const handleWebPlay = (url: string, metadata?: SoundCloudTrack) => {
+    if (onAddWebTrack) {
+        onAddWebTrack(url, metadata);
+    }
+    if (!metadata) setSearchQuery(''); // Clear if direct URL paste
   };
 
-  const showWebResult = isWebMode || isSoundCloudUrl(searchQuery);
+  const showWebInputResult = isSoundCloudUrl(searchQuery);
 
   return (
     <motion.div 
@@ -120,12 +122,15 @@ const Search: React.FC<SearchProps> = ({
             {/* Mode Toggle */}
              <div className="flex items-center justify-end px-2">
                 <button
-                    onClick={() => setIsWebMode(!isWebMode)}
+                    onClick={() => {
+                        setIsWebMode(!isWebMode);
+                        setWebTracks([]);
+                    }}
                     className={`text-xs font-medium px-3 py-1 rounded-full transition-colors ${
-                        isWebMode ? 'bg-primary/20 text-primary' : 'text-surface-on-variant hover:text-surface-on'
+                        isWebMode ? 'bg-orange-500/20 text-orange-500' : 'text-surface-on-variant hover:text-surface-on'
                     }`}
                 >
-                    {isWebMode ? 'Web Playback Active' : 'Switch to Web Mode'}
+                    {isWebMode ? 'SoundCloud Search Active' : 'Switch to SoundCloud'}
                 </button>
             </div>
         </div>
@@ -134,14 +139,14 @@ const Search: React.FC<SearchProps> = ({
       {/* Results List */}
       <div className="flex-1 flex flex-col gap-2 pb-24">
 
-        {/* Web Result */}
+        {/* Web Result (Direct URL) */}
         <AnimatePresence>
-            {showWebResult && searchQuery.length > 5 && (
+            {showWebInputResult && searchQuery.length > 5 && (
                  <motion.div
                  initial={{ opacity: 0, y: -10 }}
                  animate={{ opacity: 1, y: 0 }}
                  exit={{ opacity: 0, height: 0 }}
-                 onClick={handleWebPlay}
+                 onClick={() => handleWebPlay(searchQuery)}
                  className="mx-2 mb-4 p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-orange-600/10 border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-colors group"
                >
                  <div className="flex items-center gap-4">
@@ -158,51 +163,99 @@ const Search: React.FC<SearchProps> = ({
             )}
         </AnimatePresence>
 
-        <AnimatePresence mode='popLayout'>
-          {filteredTracks.map(t => (
-            <motion.div
-              layout // Enables smooth position transitions when filtering
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              key={t.id}
-              whileTap={{ scale: 0.98, backgroundColor: 'var(--surface-container-highest)' }}
-              onClick={() => handleTrackClick(t.id)}
-              className="group flex items-center gap-4 p-2 pr-4 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors active:scale-[0.98]"
-            >
-              {/* Cover Art */}
-              <div className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm relative">
-                {t.coverArt ? (
-                  <img src={t.coverArt} alt={t.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
-                ) : (
-                  <Music className="w-6 h-6 text-surface-on-variant/50" />
+        {/* SoundCloud Results */}
+        {isWebMode && (
+            <AnimatePresence mode='popLayout'>
+                {isSearchingWeb && (
+                    <div className="flex justify-center py-8">
+                        <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
                 )}
-                {/* Play Overlay on Hover */}
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                   <div className="bg-surface-on text-surface-inverse p-1.5 rounded-full">
-                      <Music className="w-4 h-4" />
-                   </div>
-                </div>
-              </div>
+                {webTracks.map(t => (
+                    <motion.div
+                        layout
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        key={t.id}
+                        whileTap={{ scale: 0.98, backgroundColor: 'var(--surface-container-highest)' }}
+                        onClick={() => handleWebPlay(t.permalink_url, t)}
+                        className="group flex items-center gap-4 p-2 pr-4 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors active:scale-[0.98]"
+                    >
+                        <div className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm relative">
+                            {t.artwork_url || t.user.avatar_url ? (
+                                <img src={formatArtworkUrl(t.artwork_url || t.user.avatar_url) || ''} alt={t.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                            ) : (
+                                <Globe className="w-6 h-6 text-orange-500/50" />
+                            )}
+                             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <div className="bg-orange-500 text-white p-1.5 rounded-full">
+                                    <PlayCircle className="w-4 h-4" />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-orange-500 transition-colors flex items-center gap-2">
+                                {t.title}
+                            </h4>
+                            <p className="text-body-medium text-surface-on-variant truncate">
+                                {t.user.username}
+                            </p>
+                        </div>
+                        <span className="text-[10px] bg-orange-500/10 text-orange-500 px-1.5 py-0.5 rounded border border-orange-500/20">SoundCloud</span>
+                    </motion.div>
+                ))}
+            </AnimatePresence>
+        )}
 
-              {/* Text Info */}
-              <div className="flex-1 min-w-0">
-                <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-primary transition-colors flex items-center gap-2">
-                  {t.title}
-                  {t.source === 'soundcloud' && (
-                      <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30">WEB</span>
-                  )}
-                </h4>
-                <p className="text-body-medium text-surface-on-variant truncate">
-                  {t.artist}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+        {/* Local Results */}
+        {!isWebMode && (
+            <AnimatePresence mode='popLayout'>
+            {filteredTracks.map(t => (
+                <motion.div
+                layout // Enables smooth position transitions when filtering
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                key={t.id}
+                whileTap={{ scale: 0.98, backgroundColor: 'var(--surface-container-highest)' }}
+                onClick={() => handleTrackClick(t.id)}
+                className="group flex items-center gap-4 p-2 pr-4 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors active:scale-[0.98]"
+                >
+                {/* Cover Art */}
+                <div className="w-14 h-14 bg-surface-container-highest rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm relative">
+                    {t.coverArt ? (
+                    <img src={t.coverArt} alt={t.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                    ) : (
+                    <Music className="w-6 h-6 text-surface-on-variant/50" />
+                    )}
+                    {/* Play Overlay on Hover */}
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <div className="bg-surface-on text-surface-inverse p-1.5 rounded-full">
+                        <Music className="w-4 h-4" />
+                    </div>
+                    </div>
+                </div>
+
+                {/* Text Info */}
+                <div className="flex-1 min-w-0">
+                    <h4 className="text-body-large font-medium text-surface-on truncate group-hover:text-primary transition-colors flex items-center gap-2">
+                    {t.title}
+                    {t.source === 'soundcloud' && (
+                        <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30">WEB</span>
+                    )}
+                    </h4>
+                    <p className="text-body-medium text-surface-on-variant truncate">
+                    {t.artist}
+                    </p>
+                </div>
+                </motion.div>
+            ))}
+            </AnimatePresence>
+        )}
 
         {/* Empty State */}
-        {searchQuery && filteredTracks.length === 0 && !showWebResult && (
+        {searchQuery && ((!isWebMode && filteredTracks.length === 0) || (isWebMode && webTracks.length === 0 && !isSearchingWeb)) && !showWebInputResult && (
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }}
