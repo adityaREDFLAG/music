@@ -8,12 +8,15 @@ export interface YouTubeTrack {
 }
 
 // List of Piped instances
+// Prioritizing instances known to be stable/working
 const PIPED_INSTANCES = [
-    'https://api.piped.private.coffee',
-    'https://pipedapi.kavin.rocks', // Official instance, often busy but good backup
-    'https://pipedapi.moomoo.me',
-    'https://api-piped.mha.fi',
-    'https://pipedapi.tokhmi.xyz'
+    'https://api.piped.private.coffee', // Often reliable
+    'https://pipedapi.kavin.rocks', // Official
+    'https://pipedapi.ducks.party',
+    'https://pipedapi.adminforge.de',
+    'https://pipedapi.nosebs.ru',
+    'https://pipedapi.leptons.xyz',
+    'https://pipedapi-libre.kavin.rocks',
 ];
 
 let currentInstanceIndex = 0;
@@ -52,10 +55,17 @@ function calculateRelevance(track: YouTubeTrack): number {
 }
 
 async function fetchFromPiped(path: string): Promise<any> {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < PIPED_INSTANCES.length; i++) {
         const instance = PIPED_INSTANCES[(currentInstanceIndex + i) % PIPED_INSTANCES.length];
         try {
-            const response = await fetch(`${instance}${path}`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+            const response = await fetch(`${instance}${path}`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
             if (!response.ok) throw new Error(`Request failed on ${instance}`);
 
             const data = await response.json();
