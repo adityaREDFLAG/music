@@ -283,10 +283,11 @@ export const useAudioPlayer = (
   const playTrack = useCallback(async (trackId: string, options: {
     immediate?: boolean;
     fromQueue?: boolean;
+    isAuto?: boolean;
     customQueue?: string[];
     trackDef?: Track;
   } = {}) => {
-    const { immediate = true, fromQueue = false, customQueue, trackDef } = options;
+    const { immediate = true, fromQueue = false, isAuto = false, customQueue, trackDef } = options;
     
     let nextTrackDef = trackDef || libraryTracks[trackId];
 
@@ -299,7 +300,12 @@ export const useAudioPlayer = (
         // Prevent stale pause events from local player
         isSwitchingSourceRef.current = true;
 
-        // Mute first to allow autoplay
+        // Check background restrictions
+        const isHidden = document.visibilityState === 'hidden';
+        // Only allow play if visible OR user explicitly selected (!isAuto)
+        const shouldPlay = !isHidden || !isAuto;
+
+        // Mute first to allow autoplay (if playing)
         setWebMuted(true);
 
         // Stop local playback engines
@@ -350,7 +356,7 @@ export const useAudioPlayer = (
               currentTrackId: trackId,
               queue: newQueue,
               originalQueue: newOriginalQueue,
-              isPlaying: true
+              isPlaying: shouldPlay
             };
         });
 
@@ -358,10 +364,13 @@ export const useAudioPlayer = (
         if (webPlayer && nextTrackDef?.externalUrl) {
             const id = extractVideoId(nextTrackDef.externalUrl);
             if (id) {
-                // webPlayer.seekTo(0); // Not needed with loadVideoById usually
                 const internalPlayer = webPlayer.getInternalPlayer();
-                if (internalPlayer && typeof internalPlayer.loadVideoById === 'function') {
-                    internalPlayer.loadVideoById(id);
+                if (internalPlayer) {
+                    if (shouldPlay && typeof internalPlayer.loadVideoById === 'function') {
+                        internalPlayer.loadVideoById(id);
+                    } else if (!shouldPlay && typeof internalPlayer.cueVideoById === 'function') {
+                        internalPlayer.cueVideoById(id);
+                    }
                 }
             }
         }
@@ -588,7 +597,7 @@ export const useAudioPlayer = (
       return null;
   }, [libraryTracks]);
 
-  const nextTrack = useCallback(() => {
+  const nextTrack = useCallback((isAuto: boolean = false) => {
      let nextId: string | null = upcomingTrackIdRef.current;
 
      if (!nextId) {
@@ -596,7 +605,7 @@ export const useAudioPlayer = (
      }
 
      if (nextId) {
-         playTrack(nextId, { immediate: true, fromQueue: true });
+         playTrack(nextId, { immediate: true, fromQueue: true, isAuto });
      }
   }, [player, playTrack, calculateNextTrackId]);
 
@@ -757,7 +766,7 @@ export const useAudioPlayer = (
               const timeLeft = audioElement.duration - audioElement.currentTime;
               if ((player.crossfadeEnabled || player.automixEnabled) && !isTransitioningRef.current && !isAutoTriggeredRef.current && timeLeft <= player.crossfadeDuration && timeLeft > 0.1) {
                    isAutoTriggeredRef.current = true;
-                   nextTrack();
+                   nextTrack(true);
               }
           }
       };
@@ -779,7 +788,7 @@ export const useAudioPlayer = (
                audioElement.currentTime = 0;
                audioElement.play().catch(console.warn);
            } else {
-               nextTrack();
+               nextTrack(true);
            }
       };
       const onPause = () => {

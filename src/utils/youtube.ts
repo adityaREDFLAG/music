@@ -10,9 +10,11 @@ export interface YouTubeTrack {
 // List of Invidious instances with CORS enabled
 // Ideally we would fetch this from api.invidious.io, but for simplicity/reliability we hardcode a known working one.
 const INVIDIOUS_INSTANCES = [
-    'https://inv.perditum.com',
-    'https://invidious.nerdvpn.de', // fallback (check cors)
-    'https://inv.nadeko.net' // fallback
+    'https://inv.nadeko.net',
+    'https://yewtu.be',
+    'https://invidious.flokinet.to',
+    'https://invidious.privacydev.net',
+    'https://inv.perditum.com'
 ];
 
 let currentInstanceIndex = 0;
