@@ -7,14 +7,13 @@ export interface YouTubeTrack {
   url: string;
 }
 
-// List of Invidious instances with CORS enabled
-// Ideally we would fetch this from api.invidious.io, but for simplicity/reliability we hardcode a known working one.
-const INVIDIOUS_INSTANCES = [
-    'https://inv.nadeko.net',
-    'https://yewtu.be',
-    'https://invidious.flokinet.to',
-    'https://invidious.privacydev.net',
-    'https://inv.perditum.com'
+// List of Piped instances
+const PIPED_INSTANCES = [
+    'https://api.piped.private.coffee',
+    'https://pipedapi.kavin.rocks', // Official instance, often busy but good backup
+    'https://pipedapi.moomoo.me',
+    'https://api-piped.mha.fi',
+    'https://pipedapi.tokhmi.xyz'
 ];
 
 let currentInstanceIndex = 0;
@@ -55,26 +54,31 @@ function calculateRelevance(track: YouTubeTrack): number {
 export async function searchYouTube(query: string): Promise<YouTubeTrack[]> {
   // Try up to 3 instances
   for (let i = 0; i < 3; i++) {
-      const instance = INVIDIOUS_INSTANCES[(currentInstanceIndex + i) % INVIDIOUS_INSTANCES.length];
+      const instance = PIPED_INSTANCES[(currentInstanceIndex + i) % PIPED_INSTANCES.length];
       try {
-        const response = await fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`);
+        const response = await fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=all`);
         if (!response.ok) throw new Error(`Search failed on ${instance}`);
 
         const data = await response.json();
 
-        if (!Array.isArray(data)) return [];
+        if (!data.items || !Array.isArray(data.items)) return [];
 
         // Update successful index
-        currentInstanceIndex = (currentInstanceIndex + i) % INVIDIOUS_INSTANCES.length;
+        currentInstanceIndex = (currentInstanceIndex + i) % PIPED_INSTANCES.length;
 
-        const tracks = data.map((item: any) => ({
-            id: item.videoId,
-            title: item.title,
-            channel: item.author,
-            duration: item.lengthSeconds,
-            thumbnail: item.videoThumbnails?.find((t: any) => t.quality === 'medium' || t.quality === 'hqdefault')?.url || item.videoThumbnails?.[0]?.url,
-            url: `https://www.youtube.com/watch?v=${item.videoId}`
-        }));
+        const tracks = data.items
+            .filter((item: any) => item.type === 'stream')
+            .map((item: any) => {
+                const videoId = item.url.split('v=')[1];
+                return {
+                    id: videoId,
+                    title: item.title,
+                    channel: item.uploaderName,
+                    duration: item.duration,
+                    thumbnail: item.thumbnail,
+                    url: `https://www.youtube.com/watch?v=${videoId}`
+                };
+            });
 
         return tracks
             .filter(isSong)
